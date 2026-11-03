@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ikonsm",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/agents/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "PropertyAgent", "class_name": "PropertyAgent" },
+      { "name": "ChiefOfStaffAgent", "class_name": "ChiefOfStaffAgent" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PropertyAgent", "ChiefOfStaffAgent"] }],
+  "r2_buckets": [{ "binding": "VAULT", "bucket_name": "ikonsm-vault" }],
+  // Outbound email. Unrestricted binding: requires the domain to be onboarded to
+  // Cloudflare Email Service (sending) in production. Locally, sends are written to .wrangler/tmp/email.
+  "send_email": [{ "name": "EMAIL" }],
+  "vars": {
+    "APP_NAME": "Ikon Command Hub",
+    "COMPANY_NAME": "Ikon Strata Management",
+    // Domain the building agents receive email on, e.g. sp26707@<EMAIL_DOMAIN>
+    "EMAIL_DOMAIN": "ikon.example.com",
+    // Claude models
+    "MODEL_AGENT": "claude-sonnet-5-5",
+    "MODEL_TRIAGE": "claude-haiku-5-5",
+    // "true" to require the passcode login (set HUB_PASSCODE secret). Use Cloudflare Access in production.
+    "AUTH_REQUIRED": "true"
+  }
+}
