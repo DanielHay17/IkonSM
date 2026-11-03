@@ -1,6 +1,8 @@
 // Pure helpers for PropertyAgent: validation, threading keys, contractor matching,
 // recipient checks and human-readable labels. No I/O here, so it is easy to unit test.
 
+import { engineLabel } from "../../shared/engines";
+import { perthShort } from "../ai/client";
 import { ASSIGNEE_ROLES, CATEGORIES, CATEGORY_LABELS } from "../../shared/types";
 import type {
   ApprovalStatus,
@@ -189,6 +191,7 @@ export function normaliseInbound(input: InboundInput): InboundInput {
     references: optionalText(input.references, 8000),
     attachments: Array.isArray(input.attachments) ? input.attachments : [],
     simulated: input.simulated === true,
+    senderVerified: typeof input.senderVerified === "boolean" ? input.senderVerified : null,
   };
 }
 
@@ -218,9 +221,19 @@ export function ticketNumber(spNumber: string, seq: number): string {
   return `WO-${spNumber}-${String(seq).padStart(4, "0")}`;
 }
 
+/**
+ * P1/P2 maintenance and insurance items get a work order, and so does any P1 that needs a trade
+ * (the rules engine's P1 rail can leave a model's non-work category, e.g. a tenant reporting a flood).
+ */
 export function needsTicket(triage: Triage): boolean {
   const workCategory: Category[] = ["maintenance", "insurance"];
-  return workCategory.includes(triage.category) && (triage.priority === "P1" || triage.priority === "P2");
+  const urgent = triage.priority === "P1" || triage.priority === "P2";
+  return (workCategory.includes(triage.category) && urgent) || (triage.priority === "P1" && !!triage.contractorTrade);
+}
+
+/** Likely the lot owner's to fix and not an emergency: track it, but don't dispatch the strata company's contractor. */
+export function ownerToArrange(triage: Triage): boolean {
+  return triage.responsibility === "lot_owner" && triage.priority !== "P1";
 }
 
 export function shouldDraftReply(triage: Triage): boolean {
@@ -241,7 +254,7 @@ export function triageHeadline(triage: Triage): string {
 }
 
 export function triageDetail(triage: Triage): string {
-  const engine = triage.engine === "claude" ? `Claude${triage.model ? ` (${triage.model})` : ""}` : "rules engine";
+  const engine = engineLabel(triage.engine, triage.model, triage.provider);
   return [
     `Responsibility: ${RESPONSIBILITY_LABELS[triage.responsibility] ?? triage.responsibility}. ${triage.responsibilityReason}`,
     `Allocate to: ${triage.allocateTo.join(", ") || "-"}${triage.contractorTrade ? ` (trade: ${triage.contractorTrade})` : ""}`,
@@ -317,17 +330,28 @@ const RESPONSIBILITY_LABELS: Record<Triage["responsibility"], string> = {
   not_applicable: "Not applicable",
 };
 
-export function ticketDescription(triage: Triage, message: Message): string {
+/** The rules engine appends the quoted subject (` - "URGENT: water…"`) to its summaries; titles drop it. */
+export function stripSubjectHint(summary: string): string {
+  return summary.replace(/\s+-\s+".*$/, "").trim();
+}
+
+/** Work-order title: the triage summary without the quoted subject, else the thread subject. */
+export function ticketTitle(triage: Triage, subject: string): string {
+  return truncate(stripSubjectHint(triage.summary) || subject.trim() || "Work order", 140);
+}
+
+/** Work-order description (the title already carries the summary, so it is not repeated here). */
+export function ticketDescription(triage: Triage, message: Message, recurrenceOf: string | null = null): string {
   const sender = messageSender(message);
   const lines = [
-    triage.summary,
-    "",
-    `Reported by: ${sender.name ?? sender.address} via ${channelNoun(message.channel)} on ${message.createdAt.slice(0, 10)}`,
+    ...(recurrenceOf ? [`Recurrence of ${recurrenceOf} (marked done).`, ""] : []),
+    `Reported by: ${sender.name ?? sender.address} via ${channelNoun(message.channel)} on ${perthShort(message.createdAt)} (Perth time)`,
     `Responsibility: ${RESPONSIBILITY_LABELS[triage.responsibility] ?? triage.responsibility}. ${triage.responsibilityReason}`,
   ];
+  if (ownerToArrange(triage)) lines.push("Likely the lot owner's to arrange: contact the owner or their property manager before dispatching.");
   if (triage.safetyNotice) lines.push(`Safety: ${triage.safetyNotice}`);
   if (triage.statutoryDeadline) lines.push(`Deadline: ${triage.statutoryDeadline}`);
-  lines.push("", "Original message (excerpt):", truncate(message.text.trim(), 600));
+  lines.push("", "What the occupant reported (excerpt):", truncate(message.text.trim(), 600));
   return lines.join("\n");
 }
 
@@ -369,6 +393,13 @@ export function replyRecipient(sender: Sender, contacts: Contact[]): { address: 
 }
 
 export type RecipientCheck = { ok: true } | { ok: false; reason: string };
+
+/** RFC 2606 / 6761 reserved domains: example.com/.net/.org and the .example, .test, .invalid, .localhost TLDs. */
+export function isReservedTestAddress(address: string): boolean {
+  const domain = senderKey(address).split("@")[1] ?? "";
+  if (!domain) return false;
+  return /^(.+\.)?example\.(com|net|org)$/.test(domain) || /\.(example|test|invalid|localhost)$/.test(domain);
+}
 
 /** Outbound email may only go to the thread's original sender or a contact stored on this building. */
 export function checkRecipient(address: string, threadSender: string | null, contacts: Contact[]): RecipientCheck {
@@ -427,16 +458,72 @@ export function citationsFrom(hits: SearchHit[]): Citation[] {
   return [...byDoc.values()];
 }
 
-/** Chat answer used when Claude is unavailable: says so plainly, then lists document matches. */
-export function offlineAnswer(reason: string, hits: SearchHit[]): { text: string; citations: Citation[] } {
+const TABLE_SEPARATOR = /^\|?[-\s|:]+\|?$/;
+
+/** Markdown passage as one plain line: table rows become "cell · cell", headings and emphasis are dropped. */
+export function plainPassage(text: string, max = 300): string {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !TABLE_SEPARATOR.test(line))
+    .map((line) =>
+      (line.startsWith("|")
+        ? line
+            .split("|")
+            .map((cell) => cell.trim())
+            .filter(Boolean)
+            .join(" · ")
+        : line
+      )
+        .replace(/^#{1,6}\s*/, "")
+        .replace(/\*\*|__|`/g, ""),
+    );
+  return previewOf(lines.join(" "), max);
+}
+
+/** Chat answer used when no LLM is in use: says so plainly, then lists document matches (and any matching contacts). */
+export function offlineAnswer(
+  reason: string,
+  hits: SearchHit[],
+  contactLines: string[] = [],
+): { text: string; citations: Citation[] } {
+  const contacts = contactLines.length ? `\n\nFrom this building's contacts:\n${contactLines.map((l) => `- ${l}`).join("\n")}` : "";
   if (hits.length === 0) {
-    return { text: `${reason}\n\nI found nothing in this building's documents that matches the question.`, citations: [] };
+    return { text: `${reason}\n\nI found nothing in this building's documents that matches the question.${contacts}`, citations: [] };
   }
-  const lines = hits.map((hit) => `- ${hit.docName} (${hit.folder}): ${previewOf(hit.snippet, 300)}`);
+  const lines = hits.map((hit) => `- ${hit.docName} (${hit.folder}): ${plainPassage(hit.snippet)}`);
   return {
-    text: `${reason}\n\nThe most relevant passages in this building's documents are:\n${lines.join("\n")}`,
+    text: `${reason}\n\nThe most relevant passages in this building's documents are:\n${lines.join("\n")}${contacts}`,
     citations: citationsFrom(hits),
   };
+}
+
+const CHAT_TRADES: [RegExp, string][] = [
+  [/\bplumb/i, "plumber"],
+  [/\belectric/i, "electrician"],
+  [/\blocksmith|\blocked out\b|\bkeys?\b/i, "locksmith"],
+  [/\bglaz|\bwindow/i, "glazier"],
+  [/\bgarden|\blawn|\bretic/i, "gardener"],
+  [/\bclean/i, "cleaner"],
+  [/\broof/i, "roofer"],
+  [/\bpest|termite/i, "pest controller"],
+  [/\bgas fitter|\bgas\b/i, "gas fitter"],
+  [/\blift|\belevator/i, "lift technician"],
+];
+
+/** "After-hours plumber: Sample Plumbing (24/7), 08 5550 0021" lines for the trades a question names. */
+export function contractorLines(question: string, contacts: Contact[]): string[] {
+  const afterHours = /after[- ]?hours|24\/7|emergency|urgent|tonight|weekend/i.test(question);
+  const trades = CHAT_TRADES.filter(([pattern]) => pattern.test(question)).map(([, trade]) => trade);
+  const lines: string[] = [];
+  for (const trade of trades) {
+    const c = pickContractor(contacts, trade, afterHours ? "P1" : "P3");
+    if (!c) continue;
+    const label = `${c.afterHours ? "After-hours " : ""}${trade}`;
+    const details = [c.phone, c.email].filter(Boolean).join(", ");
+    lines.push(`${label.charAt(0).toUpperCase()}${label.slice(1)}: ${c.name}${details ? `, ${details}` : ""}${c.sample ? " (SAMPLE contact)" : ""}`);
+  }
+  return lines;
 }
 
 const TOOL_LABELS: Record<string, string> = {

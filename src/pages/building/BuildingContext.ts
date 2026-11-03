@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { PropertyOverview, PropertyProfile, PropertyState } from "../../../shared/types";
+import type { AiInfo, PropertyOverview, PropertyProfile, PropertyState } from "../../../shared/types";
 import type { LiveMode } from "../../hooks/usePropertyLive";
 
 export interface BuildingContextValue {
@@ -12,6 +12,8 @@ export interface BuildingContextValue {
   /** Changes whenever the current view should silently refetch. */
   refreshKey: number;
   aiOnline: boolean;
+  /** LLM provider and model in use (live agent state, else the session's view of the Worker config). */
+  ai: AiInfo | null;
   reloadOverview: () => Promise<void>;
   openSimulate: () => void;
 }

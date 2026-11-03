@@ -11,6 +11,7 @@ const BOUNDARIES = ["\n\n", "\n", ". ", "? ", "! ", "; ", ", ", " "];
 
 const MAX_QUERY_INPUT_CHARS = 2000;
 const MAX_QUERY_TERMS = 12;
+const MAX_QUERY_PHRASES = 4;
 const MAX_TERM_CHARS = 64;
 
 /**
@@ -96,18 +97,32 @@ const STOPWORDS = new Set([
 /**
  * Turns arbitrary user text into an FTS5 MATCH expression: lower-cased letter/number terms,
  * stopwords and one-character tokens dropped, de-duplicated, at most 12, each quoted as a
- * prefix query and OR'd: `"burst"* OR "pipe"*`. Returns null when nothing usable remains.
- * Terms contain only letters, marks and digits, so the result can never be an FTS5 syntax error.
+ * prefix query and OR'd: `"burst"* OR "pipe"*`. Adjacent terms (no stopword between them) are also
+ * added first as exact phrases, at most 4, so a passage with the phrase outranks one that merely
+ * repeats a word: "Where is the water main?" → `"water main" OR "water"* OR "main"*`.
+ * Returns null when nothing usable remains. Terms contain only letters, marks and digits, so the
+ * result can never be an FTS5 syntax error.
  */
 export function ftsQuery(userQuery: string): string | null {
   if (typeof userQuery !== "string") return null;
   const terms: string[] = [];
+  const phrases: string[] = [];
+  let previous: string | null = null;
   const tokens = userQuery.slice(0, MAX_QUERY_INPUT_CHARS).normalize("NFC").toLowerCase().split(/[^\p{L}\p{M}\p{N}]+/u);
   for (const token of tokens) {
     const term = token.slice(0, MAX_TERM_CHARS);
-    if (term.length < 2 || STOPWORDS.has(term) || terms.includes(term)) continue;
-    terms.push(term);
+    if (term.length < 2 || STOPWORDS.has(term)) {
+      if (token) previous = null;
+      continue;
+    }
+    if (previous && previous !== term && phrases.length < MAX_QUERY_PHRASES) {
+      const phrase = `${previous} ${term}`;
+      if (!phrases.includes(phrase)) phrases.push(phrase);
+    }
+    previous = term;
+    if (!terms.includes(term)) terms.push(term);
     if (terms.length === MAX_QUERY_TERMS) break;
   }
-  return terms.length ? terms.map((term) => `"${term}"*`).join(" OR ") : null;
+  if (terms.length === 0) return null;
+  return [...phrases.map((phrase) => `"${phrase}"`), ...terms.map((term) => `"${term}"*`)].join(" OR ");
 }

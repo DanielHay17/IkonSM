@@ -159,6 +159,8 @@ const simulateSchema = z
     fromAddress: requiredText(254),
     subject: withDefault(z.string().trim().max(300), ""),
     text: requiredText(20_000),
+    /** Start a fresh thread instead of joining one with the same sender and subject (the hub's Simulate panel). */
+    newThread: withDefault(z.boolean(), false),
   })
   .refine((input) => input.channel !== "email" || EMAIL_ADDRESS.test(input.fromAddress), {
     message: "Must be an email address for the email channel",
@@ -231,8 +233,8 @@ let portfolioSeeded = false;
  */
 async function ensurePortfolio(env: Env): Promise<void> {
   if (portfolioSeeded) return;
-  await (await chiefOfStaff(env)).ensureSeeded();
-  portfolioSeeded = true;
+  // Only a complete run sets the flag: after a partial failure the next request retries.
+  portfolioSeeded = await (await chiefOfStaff(env)).ensureSeeded();
 }
 
 /** Best-effort ensurePortfolio for paths that can still work with an unseeded agent. */
@@ -298,10 +300,13 @@ property.post("/threads/:tid/close", async (c) => {
 });
 
 property.post("/simulate", async (c) => {
-  const input = await readJson(c, simulateSchema);
-  const result = await c.var.agent.ingestMessage({ ...input, simulated: true }, { process: "now" });
+  const { newThread, ...input } = await readJson(c, simulateSchema);
+  const result = await c.var.agent.ingestMessage({ ...input, simulated: true }, { process: "now", newThread });
   return c.json(result, 201);
 });
+
+/** Demo reset: deletes this building's simulated threads with their drafts and work orders. */
+property.post("/simulated/reset", async (c) => c.json(await c.var.agent.resetSimulated(c.var.staffName)));
 
 // Approvals ----------------------------------------------------------------
 
@@ -398,7 +403,8 @@ property.delete("/docs/:docId", async (c) => {
 
 property.get("/search", async (c) => {
   const { q, limit } = validate(searchQuery, c.req.query());
-  return c.json(q ? await c.var.agent.searchDocs(q, limit) : []);
+  // The vault screen also lists emailed attachments (labelled there); the agents never treat them as records.
+  return c.json(q ? await c.var.agent.searchDocs(q, limit, { includeEmailed: true }) : []);
 });
 
 // Contacts -----------------------------------------------------------------
@@ -479,8 +485,7 @@ api.route("/", authRoutes);
 
 api.get("/portfolio", async (c) => {
   const cos = await chiefOfStaff(c.env);
-  await cos.ensureSeeded();
-  portfolioSeeded = true;
+  if (await cos.ensureSeeded()) portfolioSeeded = true;
   return c.json(await cos.listProperties());
 });
 
@@ -513,6 +518,11 @@ export const app = new Hono<AppEnv>();
 app.route("/api", api);
 
 app.all("/agents/*", async (c) => {
+  // Browsers always send Origin on websocket upgrades: only the hub's own pages may open the live-state sockets.
+  const origin = c.req.header("Origin");
+  if (origin !== undefined && origin !== new URL(c.req.url).origin) {
+    return c.json({ error: "Cross-origin request blocked" }, 403);
+  }
   // Resolved before routing because the hooks only see the request, not the Hono context.
   const staffName = await staffFromRequest(c.env, c.req.raw);
   const guard: AgentRouteGuard = (_request, route) => rejectAgentRoute(staffName, route.className, route.name);

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { cx } from "../lib/cx";
 import { Icon, type IconName } from "./Icon";
 import { Link } from "./Link";
@@ -14,8 +14,13 @@ export interface TabItem<K extends string> {
 
 /** Route-backed tab bar: each tab is a link, so tabs are deep-linkable and work with back/forward. */
 export function TabNav<K extends string>({ items, active, label }: { items: TabItem<K>[]; active: K; label: string }) {
+  const navRef = useRef<HTMLElement>(null);
+  // On a narrow screen the strip scrolls sideways: keep the current tab in view (deep links, reloads).
+  useEffect(() => {
+    navRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [active]);
   return (
-    <nav aria-label={label} className="-mx-4 overflow-x-auto px-4 scrollbar-thin sm:mx-0 sm:px-0">
+    <nav ref={navRef} aria-label={label} className="-mx-4 overflow-x-auto px-4 scrollbar-thin sm:mx-0 sm:px-0">
       <ul className="flex min-w-max gap-1 border-b border-line">
         {items.map((item) => {
           const selected = item.key === active;

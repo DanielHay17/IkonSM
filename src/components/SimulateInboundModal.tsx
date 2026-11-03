@@ -6,7 +6,7 @@ import { Button } from "./Button";
 import { FormError } from "./EmptyState";
 import { SelectField, TextAreaField, TextField } from "./Field";
 import { Icon } from "./Icon";
-import { Modal } from "./Modal";
+import { ConfirmDialog, Modal } from "./Modal";
 import { useToast } from "./Toast";
 
 type SimulateChannel = Extract<Channel, "email" | "sms" | "portal">;
@@ -126,6 +126,7 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
   const [form, setForm] = useState<SimulateInput>(EMPTY);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -142,7 +143,8 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
     setError(null);
     try {
       const fromName = form.fromName?.trim() || null;
-      const { threadId } = await api.simulate(propertyId, { ...form, fromName });
+      // Every simulated message starts its own thread, so re-running a scenario never merges into a rehearsal.
+      const { threadId } = await api.simulate(propertyId, { ...form, fromName, newThread: true });
       toast.success(`Delivered to ${propertyLabel}`, "The agent has triaged it. Review the result below.");
       onClose();
       navigate(paths.thread(propertyId, threadId));
@@ -154,6 +156,14 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
   };
 
   const addressLabel = form.channel === "sms" ? "Mobile number" : "Email address";
+
+  const clearSimulated = async () => {
+    const result = await api.resetSimulated(propertyId);
+    toast.success(
+      "Simulated messages cleared",
+      `${result.threads} thread${result.threads === 1 ? "" : "s"}, ${result.approvals} draft${result.approvals === 1 ? "" : "s"} and ${result.tickets} work order${result.tickets === 1 ? "" : "s"} removed.`,
+    );
+  };
 
   return (
     <Modal
@@ -169,6 +179,9 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
       size="lg"
       footer={
         <>
+          <Button variant="dangerGhost" icon="trash" onClick={() => setConfirmClear(true)} disabled={submitting} className="mr-auto">
+            Clear simulated messages
+          </Button>
           <Button variant="ghost" onClick={onClose} disabled={submitting}>
             Cancel
           </Button>
@@ -236,7 +249,7 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
             value={form.fromAddress}
             onChange={(e) => set("fromAddress", e.target.value)}
             autoComplete="off"
-            placeholder={form.channel === "sms" ? "0400 000 004" : "owner@example.com"}
+            placeholder={form.channel === "sms" ? "0491 570 159" : "owner@example.com"}
             maxLength={254}
           />
         </div>
@@ -253,6 +266,14 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
 
         <FormError error={error} />
       </form>
+      <ConfirmDialog
+        open={confirmClear}
+        onClose={() => setConfirmClear(false)}
+        onConfirm={clearSimulated}
+        title="Clear simulated messages?"
+        description={`Deletes every simulated thread in ${propertyLabel}, with its drafts and work orders. Real email is not touched.`}
+        confirmLabel="Clear simulated messages"
+      />
     </Modal>
   );
 }

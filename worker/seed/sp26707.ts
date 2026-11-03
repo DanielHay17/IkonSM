@@ -1,6 +1,6 @@
 // SAMPLE records for the pilot scheme, SP 26707 - 34 Davies Road, Claremont.
 // Everything here is placeholder data for the demo: fictional people, example.com addresses,
-// 0400 000 0xx phone numbers. Replace it with Ikon's real records before go-live.
+// phone numbers from ACMA's ranges reserved for fiction (0491 57x xxx mobiles, 08 5550 xxxx landlines), so no real person is called. Replace it with Ikon's real records before go-live.
 //
 // Wording matters: the template (no-AI) drafting path quotes the first matching line of a
 // document, so the first line mentioning the water main, and the first mentioning contractor
@@ -89,15 +89,15 @@ ${SCHEME}. Prepared by Ikon Strata Management for occupiers, contractors and Iko
 | Situation | Who to call | Phone |
 |---|---|---|
 | Danger to life, fire, smoke, gas | Emergency services | 000 |
-| Burst pipe, water leak, blocked sewer | Sample Plumbing (24/7) | 0400 000 021 |
-| Sparking, power failure to common property | Sample Electrical (24/7) | 0400 000 022 |
-| Building left unsecured, broken lock | Sample Locksmiths (24/7) | 0400 000 023 |
-| Broken window or glass door | Sample Glass & Glazing (24/7) | 0400 000 024 |
-| Fire indicator panel alarm or fault | Sample Fire Protection (24/7) | 0400 000 027 |
+| Burst pipe, water leak, blocked sewer | Sample Plumbing (24/7) | 08 5550 0021 |
+| Sparking, power failure to common property | Sample Electrical (24/7) | 08 5550 0022 |
+| Building left unsecured, broken lock | Sample Locksmiths (24/7) | 08 5550 0023 |
+| Broken window or glass door | Sample Glass & Glazing (24/7) | 08 5550 0024 |
+| Fire indicator panel alarm or fault | Sample Fire Protection (24/7) | 08 5550 0027 |
 | Storm damage | SES | 132 500 |
 | Power outage in the street | Western Power faults | 13 13 51 |
 | Water supply fault in the street | Water Corporation faults | 13 13 75 |
-| Ikon strata manager on call (after hours) | Ikon after-hours line (SAMPLE number) | 0400 000 050 |
+| Ikon strata manager on call (after hours) | Ikon after-hours line (SAMPLE number) | 0491 571 804 |
 `,
 );
 
@@ -131,7 +131,7 @@ SP 26707 - 34 Davies Road, Claremont. The real scheme by-laws are the ones regis
 - Maintenance of lots: each owner must keep their lot, including fixtures, fittings and the hot water system, in good repair. The strata company maintains, repairs and replaces common property (Strata Titles Act 1985, s91). See "Responsibility guide - lot vs common property".
 - Council: between 3 and 7 members, elected at each AGM, who choose a chairperson, secretary and treasurer. Current members and spending delegations are in "Council members and delegations".
 - Alterations and air-conditioners: an owner needs the council's written approval before installing an air-conditioner, awning, security screen or solar panels, or making any change that affects the outside of the building or the common property. Structural changes to a lot usually need a resolution of the strata company, and the work must be done by licensed tradespeople.
-- Contributions: owners pay the contributions set at the AGM by the due dates on the contribution notice. Overdue amounts attract simple interest at 11% a year (Strata Titles (General) Regulations 2019, reg 78).
+- Contributions: owners pay the contributions set at the AGM by the due dates on the contribution notice. Overdue amounts bear simple interest at up to 11% a year (Strata Titles (General) Regulations 2019, reg 78) unless the strata company has resolved on no interest or a lower rate (s100(4)(b)).
 - Car bays: each lot's car bay is shown on the strata plan as part of that lot (sample assumption - check the plan).
 - Exclusive use: no exclusive use by-laws are recorded in this sample summary.
 - Damage: an owner can be asked to pay for damage to common property caused by them, their tenants or their visitors.
@@ -195,7 +195,7 @@ ${SCHEME}
 3. The insurer may appoint an assessor. The plumber's or other contractor's report on the cause is usually needed.
 4. Damage to contents is claimed by the owner or tenant with their own insurer.
 
-Insurer claims contact (sample): Sample Strata Insurance claims team, 0400 000 041, sample.insurance.claims@example.com, quoting policy SAMPLE-SSI-26707-2026.
+Insurer claims contact (sample): Sample Strata Insurance claims team, 08 5550 0041, sample.insurance.claims@example.com, quoting policy SAMPLE-SSI-26707-2026.
 
 ## Valuation and AGM
 
@@ -227,14 +227,14 @@ SP 26707 - 34 Davies Road, Claremont. Approved by the council (sample) on 15 Sep
 
 | Trade | Company (sample) | Contact | Phone | Email | After hours | Notes |
 |---|---|---|---|---|---|---|
-| Plumber | Sample Plumbing (24/7) | Dispatch desk | 0400 000 021 | plumbing.dispatch@example.com | Yes, 24/7 | First call for leaks, burst pipes, blocked sewer and hot water. Repaired the 2025 ceiling leak between lots 4 and 8. |
-| Electrician | Sample Electrical (24/7) | Service desk | 0400 000 022 | electrical.service@example.com | Yes, 24/7 | Common property power and lighting; emergency lighting tests. |
-| Locksmith | Sample Locksmiths (24/7) | Service desk | 0400 000 023 | locksmith.service@example.com | Yes, 24/7 | Common doors, garage remote and key safe; restricted key system. |
-| Glazier | Sample Glass & Glazing (24/7) | Service desk | 0400 000 024 | glazing.service@example.com | Yes, 24/7 | Broken windows and glass doors; boarding up after hours. |
-| Cleaner | Sample Cleaning Co | Account manager | 0400 000 025 | cleaning.accounts@example.com | No | Fortnightly clean of stairwells, landings and car park; bin store wash every quarter. |
-| Gardener | Sample Gardens & Reticulation | Owner-operator | 0400 000 026 | gardens.reticulation@example.com | No | Monthly garden visit; reticulation check every spring. |
-| Fire services | Sample Fire Protection (24/7) | Service desk | 0400 000 027 | fire.service@example.com | Yes, 24/7 | AS 1851 six-monthly inspections, fire indicator panel and extinguishers. |
-| Builder / handyman | Sample Building Maintenance | Supervisor | 0400 000 028 | building.maintenance@example.com | No | Minor repairs, doors, gutters and roof tiles (with fall protection). |
+| Plumber | Sample Plumbing (24/7) | Dispatch desk | 08 5550 0021 | plumbing.dispatch@example.com | Yes, 24/7 | First call for leaks, burst pipes, blocked sewer and hot water. Repaired the 2025 ceiling leak between lots 4 and 8. |
+| Electrician | Sample Electrical (24/7) | Service desk | 08 5550 0022 | electrical.service@example.com | Yes, 24/7 | Common property power and lighting; emergency lighting tests. |
+| Locksmith | Sample Locksmiths (24/7) | Service desk | 08 5550 0023 | locksmith.service@example.com | Yes, 24/7 | Common doors, garage remote and key safe; restricted key system. |
+| Glazier | Sample Glass & Glazing (24/7) | Service desk | 08 5550 0024 | glazing.service@example.com | Yes, 24/7 | Broken windows and glass doors; boarding up after hours. |
+| Cleaner | Sample Cleaning Co | Account manager | 08 5550 0025 | cleaning.accounts@example.com | No | Fortnightly clean of stairwells, landings and car park; bin store wash every quarter. |
+| Gardener | Sample Gardens & Reticulation | Owner-operator | 08 5550 0026 | gardens.reticulation@example.com | No | Monthly garden visit; reticulation check every spring. |
+| Fire services | Sample Fire Protection (24/7) | Service desk | 08 5550 0027 | fire.service@example.com | Yes, 24/7 | AS 1851 six-monthly inspections, fire indicator panel and extinguishers. |
+| Builder / handyman | Sample Building Maintenance | Supervisor | 08 5550 0028 | building.maintenance@example.com | No | Minor repairs, doors, gutters and roof tiles (with fall protection). |
 
 Lift: not applicable (the building has no lift).
 `,
@@ -320,7 +320,7 @@ Contributions are split by unit entitlement (sample entitlements: 120 for each g
 | 5 to 8 (first floor) | 130 each | $936 | $312 | $1,248 |
 
 - Total for the year across the scheme: $38,400 ($28,800 administrative fund plus $9,600 reserve fund).
-- Overdue contributions attract simple interest at 11% a year (Strata Titles (General) Regulations 2019, reg 78). A new owner is liable for any arrears on the lot.
+- Overdue contributions bear simple interest at up to 11% a year (Strata Titles (General) Regulations 2019, reg 78) unless the strata company has resolved on no interest or a lower rate (s100(4)(b)). A new owner is liable for any arrears on the lot.
 - Payment is by BPAY or EFT using the reference on the contribution notice (sample format SP26707-LOT4). Ikon never changes payment details by email; anyone asked to pay into a new account should call Ikon on a number they already have.
 
 ## Arrears at 31 October 2026 (sample)
@@ -440,9 +440,9 @@ SP 26707 - 34 Davies Road, Claremont. Council elected at the AGM on 15 September
 
 | Role | Name | Lot | Email | Phone | Prefers |
 |---|---|---|---|---|---|
-| Chairperson | Sam Specimen | 5 | sam.specimen@example.com | 0400 000 005 | Email; a phone call for P1 emergencies only |
-| Treasurer | Morgan Demo | 3 | morgan.demo@example.com | 0400 000 003 | Email |
-| Secretary | Jordan Mockup | 7 | jordan.mockup@example.com | 0400 000 007 | Email or SMS |
+| Chairperson | Sam Specimen | 5 | sam.specimen@example.com | 0491 570 110 | Email; a phone call for P1 emergencies only |
+| Treasurer | Morgan Demo | 3 | morgan.demo@example.com | 0491 570 158 | Email |
+| Secretary | Jordan Mockup | 7 | jordan.mockup@example.com | 0491 570 737 | Email or SMS |
 
 ## Spending delegations (council resolution, sample)
 
@@ -486,37 +486,37 @@ function contact(c: Partial<SeedContact> & Pick<SeedContact, "role" | "name">): 
 }
 
 const COUNCIL_CONTACTS: SeedContact[] = [
-  contact({ role: "council", name: "Sam Specimen", lot: "5", email: "sam.specimen@example.com", phone: "0400 000 005", notes: "Council chairperson. Prefers email; phone for P1 emergencies only." }),
-  contact({ role: "council", name: "Morgan Demo", lot: "3", email: "morgan.demo@example.com", phone: "0400 000 003", notes: "Council treasurer." }),
-  contact({ role: "council", name: "Jordan Mockup", lot: "7", email: "jordan.mockup@example.com", phone: "0400 000 007", notes: "Council secretary. Email or SMS." }),
+  contact({ role: "council", name: "Sam Specimen", lot: "5", email: "sam.specimen@example.com", phone: "0491 570 110", notes: "Council chairperson. Prefers email; phone for P1 emergencies only." }),
+  contact({ role: "council", name: "Morgan Demo", lot: "3", email: "morgan.demo@example.com", phone: "0491 570 158", notes: "Council treasurer." }),
+  contact({ role: "council", name: "Jordan Mockup", lot: "7", email: "jordan.mockup@example.com", phone: "0491 570 737", notes: "Council secretary. Email or SMS." }),
 ];
 
 const OWNER_CONTACTS: SeedContact[] = [
-  contact({ role: "owner", name: "Alex Example", lot: "1", email: "alex.example@example.com", phone: "0400 000 001", notes: "Owner-occupier, ground floor." }),
-  contact({ role: "owner", name: "Chris Placeholder", lot: "2", email: "chris.placeholder@example.com", phone: "0400 000 002", notes: "Owner-occupier, ground floor. One quarter of contributions overdue (sample)." }),
-  contact({ role: "owner", name: "Morgan Demo", lot: "3", email: "morgan.demo@example.com", phone: "0400 000 003", notes: "Owner-occupier, ground floor. Council treasurer." }),
-  contact({ role: "owner", name: "Jane Sample", lot: "4", email: "jane.sample@example.com", phone: "0400 000 004", notes: "Owner-occupier, ground floor, directly below lot 8. Ceiling leak from above in 2025." }),
-  contact({ role: "owner", name: "Sam Specimen", lot: "5", email: "sam.specimen@example.com", phone: "0400 000 005", notes: "Owner-occupier, first floor. Council chairperson." }),
-  contact({ role: "owner", name: "Taylor Fictional", lot: "6", email: "taylor.fictional@example.com", phone: "0400 000 006", notes: "Non-resident owner. Lot 6 is tenanted and managed by Sample Realty." }),
-  contact({ role: "owner", name: "Jordan Mockup", lot: "7", email: "jordan.mockup@example.com", phone: "0400 000 007", notes: "Owner-occupier, first floor. Council secretary." }),
-  contact({ role: "owner", name: "Riley Template", lot: "8", email: "riley.template@example.com", phone: "0400 000 008", notes: "Owner-occupier, first floor, directly above lot 4." }),
+  contact({ role: "owner", name: "Alex Example", lot: "1", email: "alex.example@example.com", phone: "0491 570 156", notes: "Owner-occupier, ground floor." }),
+  contact({ role: "owner", name: "Chris Placeholder", lot: "2", email: "chris.placeholder@example.com", phone: "0491 570 157", notes: "Owner-occupier, ground floor. One quarter of contributions overdue (sample)." }),
+  contact({ role: "owner", name: "Morgan Demo", lot: "3", email: "morgan.demo@example.com", phone: "0491 570 158", notes: "Owner-occupier, ground floor. Council treasurer." }),
+  contact({ role: "owner", name: "Jane Sample", lot: "4", email: "jane.sample@example.com", phone: "0491 570 159", notes: "Owner-occupier, ground floor, directly below lot 8. Ceiling leak from above in 2025." }),
+  contact({ role: "owner", name: "Sam Specimen", lot: "5", email: "sam.specimen@example.com", phone: "0491 570 110", notes: "Owner-occupier, first floor. Council chairperson." }),
+  contact({ role: "owner", name: "Taylor Fictional", lot: "6", email: "taylor.fictional@example.com", phone: "0491 570 313", notes: "Non-resident owner. Lot 6 is tenanted and managed by Sample Realty." }),
+  contact({ role: "owner", name: "Jordan Mockup", lot: "7", email: "jordan.mockup@example.com", phone: "0491 570 737", notes: "Owner-occupier, first floor. Council secretary." }),
+  contact({ role: "owner", name: "Riley Template", lot: "8", email: "riley.template@example.com", phone: "0491 571 266", notes: "Owner-occupier, first floor, directly above lot 4." }),
 ];
 
 const OTHER_CONTACTS: SeedContact[] = [
-  contact({ role: "property_manager", name: "Kim Example (Sample Realty)", lot: "6", email: "kim.example.pm@example.com", phone: "0400 000 016", notes: "Property manager for lot 6 (tenanted). Copy on lot 6 matters; lot decisions go to the owner." }),
-  contact({ role: "insurer", name: "Sample Strata Insurance Pty Ltd", email: "sample.insurance.claims@example.com", phone: "0400 000 041", notes: "Claims team. Policy SAMPLE-SSI-26707-2026. Ikon lodges claims on behalf of the strata company." }),
-  contact({ role: "staff", name: "Ikon after-hours line (SAMPLE)", phone: "0400 000 050", afterHours: true, notes: "Sample number for the strata manager on call. Replace with Ikon's real after-hours number." }),
+  contact({ role: "property_manager", name: "Kim Example (Sample Realty)", lot: "6", email: "kim.example.pm@example.com", phone: "0491 571 491", notes: "Property manager for lot 6 (tenanted). Copy on lot 6 matters; lot decisions go to the owner." }),
+  contact({ role: "insurer", name: "Sample Strata Insurance Pty Ltd", email: "sample.insurance.claims@example.com", phone: "08 5550 0041", notes: "Claims team. Policy SAMPLE-SSI-26707-2026. Ikon lodges claims on behalf of the strata company." }),
+  contact({ role: "staff", name: "Ikon after-hours line (SAMPLE)", phone: "0491 571 804", afterHours: true, notes: "Sample number for the strata manager on call. Replace with Ikon's real after-hours number." }),
 ];
 
 const CONTRACTOR_CONTACTS: SeedContact[] = [
-  contact({ role: "contractor", name: "Sample Plumbing (24/7)", trade: "plumber", afterHours: true, email: "plumbing.dispatch@example.com", phone: "0400 000 021", notes: "First call for leaks, burst pipes, blocked sewer and hot water. Repaired the 2025 ceiling leak between lots 4 and 8." }),
-  contact({ role: "contractor", name: "Sample Electrical (24/7)", trade: "electrician", afterHours: true, email: "electrical.service@example.com", phone: "0400 000 022", notes: "Common property power and lighting; emergency lighting tests." }),
-  contact({ role: "contractor", name: "Sample Locksmiths (24/7)", trade: "locksmith", afterHours: true, email: "locksmith.service@example.com", phone: "0400 000 023", notes: "Common doors, garage remote and key safe." }),
-  contact({ role: "contractor", name: "Sample Glass & Glazing (24/7)", trade: "glazier", afterHours: true, email: "glazing.service@example.com", phone: "0400 000 024", notes: "Broken windows and glass doors; boarding up after hours." }),
-  contact({ role: "contractor", name: "Sample Cleaning Co", trade: "cleaner", email: "cleaning.accounts@example.com", phone: "0400 000 025", notes: "Fortnightly common area clean." }),
-  contact({ role: "contractor", name: "Sample Gardens & Reticulation", trade: "gardener", email: "gardens.reticulation@example.com", phone: "0400 000 026", notes: "Monthly garden visit; reticulation." }),
-  contact({ role: "contractor", name: "Sample Fire Protection (24/7)", trade: "fire services", afterHours: true, email: "fire.service@example.com", phone: "0400 000 027", notes: "AS 1851 inspections, fire indicator panel, extinguishers." }),
-  contact({ role: "contractor", name: "Sample Building Maintenance", trade: "builder", email: "building.maintenance@example.com", phone: "0400 000 028", notes: "Handyman and minor building repairs, gutters, roof tiles." }),
+  contact({ role: "contractor", name: "Sample Plumbing (24/7)", trade: "plumber", afterHours: true, email: "plumbing.dispatch@example.com", phone: "08 5550 0021", notes: "First call for leaks, burst pipes, blocked sewer and hot water. Repaired the 2025 ceiling leak between lots 4 and 8." }),
+  contact({ role: "contractor", name: "Sample Electrical (24/7)", trade: "electrician", afterHours: true, email: "electrical.service@example.com", phone: "08 5550 0022", notes: "Common property power and lighting; emergency lighting tests." }),
+  contact({ role: "contractor", name: "Sample Locksmiths (24/7)", trade: "locksmith", afterHours: true, email: "locksmith.service@example.com", phone: "08 5550 0023", notes: "Common doors, garage remote and key safe." }),
+  contact({ role: "contractor", name: "Sample Glass & Glazing (24/7)", trade: "glazier", afterHours: true, email: "glazing.service@example.com", phone: "08 5550 0024", notes: "Broken windows and glass doors; boarding up after hours." }),
+  contact({ role: "contractor", name: "Sample Cleaning Co", trade: "cleaner", email: "cleaning.accounts@example.com", phone: "08 5550 0025", notes: "Fortnightly common area clean." }),
+  contact({ role: "contractor", name: "Sample Gardens & Reticulation", trade: "gardener", email: "gardens.reticulation@example.com", phone: "08 5550 0026", notes: "Monthly garden visit; reticulation." }),
+  contact({ role: "contractor", name: "Sample Fire Protection (24/7)", trade: "fire services", afterHours: true, email: "fire.service@example.com", phone: "08 5550 0027", notes: "AS 1851 inspections, fire indicator panel, extinguishers." }),
+  contact({ role: "contractor", name: "Sample Building Maintenance", trade: "builder", email: "building.maintenance@example.com", phone: "08 5550 0028", notes: "Handyman and minor building repairs, gutters, roof tiles." }),
 ];
 
 // ---------------------------------------------------------------------------

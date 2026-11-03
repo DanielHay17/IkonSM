@@ -41,7 +41,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (tone: ToastTone, title: string, description?: string) => {
       const id = nextId.current++;
       setToasts((list) => [...list.slice(-(MAX_VISIBLE - 1)), { id, tone, title, description }]);
-      window.setTimeout(() => dismiss(id), DURATION[tone]);
+      // On a phone the stack covers the content, so non-error toasts go sooner.
+      const narrow = window.matchMedia?.("(max-width: 639px)").matches ?? false;
+      window.setTimeout(() => dismiss(id), narrow && tone !== "error" ? 2500 : DURATION[tone]);
     },
     [dismiss],
   );

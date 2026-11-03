@@ -69,6 +69,16 @@ function PropertyTile({ card, now }: { card: PropertyCardData; now: number }) {
           </p>
         ) : null}
 
+        {card.error ? (
+          <p
+            className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[13px] font-medium text-amber-900 ring-1 ring-amber-200 ring-inset"
+            title={card.error}
+          >
+            <Icon name="alert" className="size-4 text-amber-600" />
+            Building agent not responding: counts unknown
+          </p>
+        ) : null}
+
         {counts.p1Open > 0 ? (
           <p className="mt-3 flex items-center gap-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-[13px] font-medium text-red-800 ring-1 ring-red-200 ring-inset">
             <Icon name="alert" className="size-4 text-red-600" />

@@ -218,7 +218,7 @@ function ContactTable({ role, contacts, onEdit, onDelete }: { role: ContactRole;
                 {showTrade ? <td className="px-3 py-3 text-ink-soft capitalize">{c.trade ?? "-"}</td> : null}
                 <td className="px-3 py-3">
                   {c.email ? (
-                    <a href={`mailto:${c.email}`} className="break-all text-ink-soft hover:text-accent hover:underline">
+                    <a href={`mailto:${c.email}`} className="text-ink-soft [overflow-wrap:anywhere] hover:text-accent hover:underline">
                       {c.email}
                     </a>
                   ) : (

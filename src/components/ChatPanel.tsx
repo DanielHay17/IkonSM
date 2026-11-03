@@ -35,6 +35,8 @@ interface ChatPanelProps {
   busyLabel?: string | null;
   /** Building id, so citations link into that building's vault. */
   propertyId?: string;
+  /** What answers look like with no LLM, shown above the composer. */
+  offlineHint?: string;
   className?: string;
 }
 
@@ -43,6 +45,22 @@ interface PendingTurn {
   /** How many server messages existed when this turn was sent; later ones stay hidden until it completes. */
   baseCount: number;
 }
+
+/** Plain labels for the agents' tools (the raw names mean nothing to staff). */
+const TOOL_NAMES: Record<string, string> = {
+  search_documents: "Searched documents",
+  read_document: "Read a document",
+  list_contacts: "Checked contacts",
+  list_tickets: "Checked work orders",
+  list_threads: "Checked the inbox",
+  create_ticket: "Created a work order",
+  remember: "Saved a memory note",
+  draft_reply: "Drafted a reply",
+  list_properties: "Checked buildings",
+  property_overview: "Checked a building",
+  search_property_documents: "Searched a building's documents",
+  list_open_items: "Checked open items",
+};
 
 function ToolChips({ calls }: { calls: ChatMessage["toolCalls"] }) {
   if (calls.length === 0) return null;
@@ -55,7 +73,7 @@ function ToolChips({ calls }: { calls: ChatMessage["toolCalls"] }) {
           className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-violet-50 px-2 py-0.5 text-[11px] text-violet-900 ring-1 ring-violet-200 ring-inset"
         >
           <Icon name="bolt" className="size-3 text-violet-500" />
-          <span className="font-mono font-medium">{call.name}</span>
+          <span className="font-medium">{TOOL_NAMES[call.name] ?? call.name.replace(/_/g, " ")}</span>
           {call.summary ? <span className="truncate text-violet-800/80">{call.summary}</span> : null}
         </li>
       ))}
@@ -71,7 +89,27 @@ function AssistantAvatar() {
   );
 }
 
+/** Mail sent to the hub address is stored in the Chief of Staff log; it is untrusted, so it never looks like an answer. */
+function InboundEmailCard({ message }: { message: ChatMessage }) {
+  return (
+    <li>
+      <div className="rounded-xl border border-dashed border-line-strong bg-surface px-4 py-3">
+        <p className="mb-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+          <Icon name="mail" className="size-3.5" />
+          <span className="font-semibold text-ink-soft">Inbound email (unverified)</span>
+          <span>· {message.author?.replace(/^Email from /, "")}</span>
+          <span>
+            · <time dateTime={message.createdAt} title={formatDateTime(message.createdAt)}>{formatTime(message.createdAt)}</time>
+          </span>
+        </p>
+        <div className="text-[13px] leading-relaxed whitespace-pre-wrap text-ink-soft">{message.text}</div>
+      </div>
+    </li>
+  );
+}
+
 function MessageBubble({ message, propertyId }: { message: ChatMessage; propertyId?: string }) {
+  if (message.role === "assistant" && message.author?.startsWith("Email from ")) return <InboundEmailCard message={message} />;
   if (message.role === "user") {
     return (
       <li className="flex justify-end">
@@ -155,6 +193,7 @@ export function ChatPanel({
   refreshKey,
   busyLabel,
   propertyId,
+  offlineHint = "AI offline: answers show matching document passages only.",
   className,
 }: ChatPanelProps) {
   const toast = useToast();
@@ -225,17 +264,23 @@ export function ChatPanel({
 
   return (
     <Card className={cx("flex flex-col overflow-hidden", className)}>
-      <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
+      <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5 sm:py-4">
         <div className="min-w-0">
           <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
-          <p className="mt-0.5 text-[13px] text-muted">{description}</p>
+          <p className="mt-0.5 hidden text-[13px] text-muted sm:block">{description}</p>
         </div>
-        <Button size="sm" icon="refresh" disabled={!!pending || messages.length === 0} onClick={() => setConfirmReset(true)}>
-          New conversation
+        <Button
+          size="sm"
+          icon="refresh"
+          aria-label="New conversation"
+          disabled={!!pending || messages.length === 0}
+          onClick={() => setConfirmReset(true)}
+        >
+          <span className="hidden sm:inline">New conversation</span>
         </Button>
       </div>
 
-      <div ref={scrollRef} className="min-h-[360px] flex-1 overflow-y-auto bg-subtle/60 px-4 py-5 scrollbar-thin sm:px-6">
+      <div ref={scrollRef} className="min-h-[240px] flex-1 overflow-y-auto bg-subtle/60 px-4 py-5 scrollbar-thin sm:min-h-[360px] sm:px-6">
         {history.loading ? (
           <div className="space-y-5" aria-label="Loading conversation" role="status">
             <Skeleton className="ml-auto h-10 w-2/5 rounded-2xl" />
@@ -282,7 +327,12 @@ export function ChatPanel({
         {!aiOnline ? (
           <p className="mb-2 flex items-center gap-1.5 text-xs text-amber-800">
             <Icon name="alert" className="size-3.5" />
-            AI offline: answers show matching document passages only.
+            {offlineHint}
+          </p>
+        ) : session.ai?.provider === "workers-ai" ? (
+          <p className="mb-2 flex items-center gap-1.5 text-xs text-sky-800">
+            <Icon name="alert" className="size-3.5" />
+            Workers AI light mode{session.ai.model ? ` (${session.ai.model})` : ""}: one answer from a document search, no tools.
           </p>
         ) : null}
         {!empty && !pending && visible.length > 0 && visible.length < 3 ? (

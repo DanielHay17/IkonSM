@@ -25,7 +25,7 @@ import { PRIORITY_LABELS, PriorityBadge, TICKET_STATUS_LABELS } from "../../comp
 import { useToast } from "../../components/Toast";
 import { useResource } from "../../hooks/useResource";
 import { cx } from "../../lib/cx";
-import { formatDate, fromDateInput, timeAgo } from "../../lib/format";
+import { formatDate, formatDateTime, fromDateInput, timeAgo } from "../../lib/format";
 import { paths } from "../../router";
 import { useBuilding } from "./BuildingContext";
 
@@ -58,6 +58,10 @@ function TicketCard({
   const { propertyId } = useBuilding();
   const selectId = useId();
   const overdue = ticket.dueAt && ticket.status !== "done" && new Date(ticket.dueAt).getTime() < Date.now();
+  // The contractor usually is the assignee: show them once.
+  const showContractor = !!contractor && contractor.name !== ticket.assigneeName;
+  // P1/P2 deadlines are hours away, so show the time; P3 only needs the date.
+  const due = ticket.dueAt ? (ticket.priority === "P3" ? formatDate(ticket.dueAt) : formatDateTime(ticket.dueAt)) : "";
 
   return (
     <li className={cx("rounded-xl border border-line bg-surface p-3.5 shadow-card transition-opacity", moving && "opacity-60")}>
@@ -74,16 +78,15 @@ function TicketCard({
         <div className="flex gap-1.5">
           <dt className="sr-only">Assigned to</dt>
           <Icon name="users" className="size-3.5 text-muted" />
-          <dd className="truncate text-ink-soft">
-            {ASSIGNEE_LABELS[ticket.assigneeRole]}
-            {ticket.assigneeName ? ` · ${ticket.assigneeName}` : ""}
+          <dd className="min-w-0 text-ink-soft [overflow-wrap:anywhere]">
+            {ticket.assigneeName ? `${ticket.assigneeName} · ${ASSIGNEE_LABELS[ticket.assigneeRole].toLowerCase()}` : ASSIGNEE_LABELS[ticket.assigneeRole]}
           </dd>
         </div>
-        {contractor ? (
+        {showContractor && contractor ? (
           <div className="flex gap-1.5">
             <dt className="sr-only">Contractor</dt>
             <Icon name="wrench" className="size-3.5 text-muted" />
-            <dd className="truncate text-ink-soft">{contractor.name}</dd>
+            <dd className="min-w-0 text-ink-soft [overflow-wrap:anywhere]">{contractor.name}</dd>
           </div>
         ) : null}
         {ticket.dueAt ? (
@@ -91,8 +94,8 @@ function TicketCard({
             <dt className="sr-only">Due</dt>
             <Icon name="clock" className="size-3.5" />
             <dd>
-              {overdue ? "Overdue · " : "Due "}
-              {formatDate(ticket.dueAt)}
+              {overdue ? "Overdue · " : ticket.priority === "P3" ? "Due " : "Make safe by "}
+              {due}
             </dd>
           </div>
         ) : null}
@@ -114,7 +117,7 @@ function TicketCard({
           value={ticket.status}
           disabled={moving}
           onChange={(e) => onMove(e.target.value as TicketStatus)}
-          className={cx(selectClasses(undefined, "h-7"), "w-auto! min-w-0 max-w-[60%] rounded-md! py-0 pl-2! text-xs!")}
+          className={cx(selectClasses(undefined, "h-7"), "w-auto! shrink-0 rounded-md! py-0 pl-2! text-xs!")}
         >
           {COLUMNS.map((status) => (
             <option key={status} value={status}>

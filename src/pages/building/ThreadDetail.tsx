@@ -14,6 +14,7 @@ import {
   PriorityBadge,
   TICKET_STATUS_LABELS,
   ThreadStatusBadge,
+  triageEngineText,
 } from "../../components/StatusBadges";
 import { useToast } from "../../components/Toast";
 import { PromptInjectionBanner, SafetyNotice, TriagePanel } from "../../components/TriagePanel";
@@ -37,6 +38,14 @@ function MessageCard({ message }: { message: Message }) {
         <p className="min-w-0 text-[13px] text-ink-soft">
           <span className="font-semibold text-ink">{message.direction === "outbound" && message.author ? message.author : message.from}</span>
           <span className="text-muted"> to {message.to}</span>
+          {message.senderVerified === false ? (
+            <span
+              className="ml-2 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900 ring-1 ring-amber-200 ring-inset"
+              title="This email did not pass SPF/DKIM/DMARC checks: the From address may be forged"
+            >
+              Unverified sender
+            </span>
+          ) : null}
         </p>
         <p className="text-xs text-muted">
           {meta.label} · {CHANNEL_META[message.channel].label} · <time dateTime={message.createdAt}>{formatDateTime(message.createdAt)}</time>
@@ -115,11 +124,12 @@ function DetailSkeleton() {
   );
 }
 
-/** Pending drafts in the order the agent proposed them (reply first, then dispatch); decided ones newest first. */
+/** Pending drafts: the reply to the sender first, then contractor dispatches, oldest first; decided ones newest first. */
 function sortApprovals(approvals: Approval[]): { pending: Approval[]; decided: Approval[] } {
   const oldestFirst = [...approvals].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const kindRank = (a: Approval) => (a.kind === "send_email" ? 0 : 1);
   return {
-    pending: oldestFirst.filter((a) => a.status === "pending"),
+    pending: oldestFirst.filter((a) => a.status === "pending").sort((a, b) => kindRank(a) - kindRank(b)),
     decided: oldestFirst.filter((a) => a.status !== "pending").reverse(),
   };
 }
@@ -141,7 +151,7 @@ export function ThreadDetail({ threadId }: { threadId: string }) {
     try {
       if (kind === "retriage") {
         const triage = await api.retriage(propertyId, threadId);
-        toast.success("Re-triaged", `${triage.priority} · ${triage.engine === "claude" ? `Claude ${triage.model ?? ""}` : "Rules engine (AI offline)"}`);
+        toast.success("Re-triaged", `${triage.priority} · ${triageEngineText(triage)}`);
       } else {
         await api.closeThread(propertyId, threadId);
         toast.success("Thread closed");
@@ -227,6 +237,18 @@ export function ThreadDetail({ threadId }: { threadId: string }) {
       {triage?.suspectedPromptInjection ? <PromptInjectionBanner /> : null}
       {triage?.safetyNotice ? <SafetyNotice text={triage.safetyNotice} /> : null}
 
+      {/* The decision is the main action, so the drafts come before the triage detail and the conversation. */}
+      {pending.length ? (
+        <section id="approvals" aria-labelledby="approvals-heading" className="scroll-mt-20 space-y-3">
+          <h3 id="approvals-heading" className="text-xs font-semibold tracking-wide text-muted uppercase">
+            Awaiting your approval
+          </h3>
+          {pending.map((approval) => (
+            <ApprovalCard key={approval.id} approval={approval} onDecided={refresh} />
+          ))}
+        </section>
+      ) : null}
+
       {triage ? (
         <TriagePanel triage={triage} />
       ) : (
@@ -264,17 +286,6 @@ export function ThreadDetail({ threadId }: { threadId: string }) {
           ))}
         </ol>
       </section>
-
-      {pending.length ? (
-        <section id="approvals" aria-labelledby="approvals-heading" className="scroll-mt-20 space-y-3">
-          <h3 id="approvals-heading" className="text-xs font-semibold tracking-wide text-muted uppercase">
-            Awaiting your approval
-          </h3>
-          {pending.map((approval) => (
-            <ApprovalCard key={approval.id} approval={approval} onDecided={refresh} />
-          ))}
-        </section>
-      ) : null}
 
       {decided.length ? (
         <section aria-labelledby="history-heading" className="space-y-3">

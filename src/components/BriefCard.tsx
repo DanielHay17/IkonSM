@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { engineLabel } from "../../shared/engines";
 import type { PortfolioBrief } from "../../shared/types";
 import { api } from "../api";
 import { formatDateTime, labelFromId, propertyLabel } from "../lib/format";
@@ -38,7 +39,7 @@ function Highlights({ brief }: { brief: PortfolioBrief }) {
               href={paths.building(h.propertyId)}
               className="inline-flex max-w-full items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
             >
-              {h.priority ? <PriorityBadge priority={h.priority} /> : null}
+              {h.priority ? <PriorityBadge priority={h.priority} /> : <Badge tone="amber">Approval</Badge>}
               <span className="font-medium text-ink">{card ? propertyLabel(card.profile) : labelFromId(h.propertyId)}</span>
               <span className="truncate">{h.label}</span>
             </Link>
@@ -53,6 +54,17 @@ function Highlights({ brief }: { brief: PortfolioBrief }) {
 export function BriefCard({ brief, loading, error, onRetry, onRefreshed, linkToChief }: BriefCardProps) {
   const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
+  const { cards } = usePortfolio();
+  // The brief bakes in counts at the time it was written; flag it when any building has moved on since.
+  const stale = !!brief && !!cards?.some((card) => card.lastActivityAt !== null && card.lastActivityAt > brief.generatedAt);
+
+  // A rules brief costs nothing to rewrite, and the server rewrites a stale one when it is fetched: refetch once.
+  const refetchedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!stale || !brief || brief.engine !== "rules" || refetchedFor.current === brief.generatedAt) return;
+    refetchedFor.current = brief.generatedAt;
+    onRetry();
+  }, [stale, brief, onRetry]);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -78,10 +90,17 @@ export function BriefCard({ brief, loading, error, onRetry, onRefreshed, linkToC
               {brief ? (
                 <>
                   <span>Generated {formatDateTime(brief.generatedAt)}</span>
-                  {brief.engine === "claude" ? (
-                    <Badge tone="accent">Written by Claude</Badge>
+                  {stale ? (
+                    <Badge tone="amber" icon="alert" title="Buildings have changed since this brief was written. Refresh for the latest.">
+                      Out of date
+                    </Badge>
+                  ) : null}
+                  {brief.engine === "rules" ? (
+                    <Badge tone="slate">Rules summary (no AI)</Badge>
                   ) : (
-                    <Badge tone="slate">Rules summary (AI offline)</Badge>
+                    <Badge tone={brief.engine === "workers-ai" ? "sky" : "accent"}>
+                      Written by {engineLabel(brief.engine, brief.model, brief.provider)}
+                    </Badge>
                   )}
                 </>
               ) : (
@@ -97,7 +116,7 @@ export function BriefCard({ brief, loading, error, onRetry, onRefreshed, linkToC
             </Link>
           ) : null}
           {brief ? (
-            <Button size="sm" icon="refresh" loading={refreshing} onClick={refresh}>
+            <Button size="sm" icon="refresh" variant={stale ? "primary" : undefined} loading={refreshing} onClick={refresh}>
               {refreshing ? "Writing…" : "Refresh"}
             </Button>
           ) : null}
@@ -111,7 +130,20 @@ export function BriefCard({ brief, loading, error, onRetry, onRefreshed, linkToC
           <ErrorState error={error} onRetry={onRetry} title="Couldn't load the brief" compact />
         ) : brief ? (
           <>
-            <RichText text={brief.text} />
+            {linkToChief ? (
+              // On the portfolio page the brief is a summary: the full text lives on the Chief of Staff page.
+              <div className="relative max-h-64 overflow-hidden">
+                <RichText text={brief.text} />
+                <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-surface to-transparent" />
+              </div>
+            ) : (
+              <RichText text={brief.text} />
+            )}
+            {linkToChief ? (
+              <Link href={paths.chiefOfStaff()} className="mt-2 inline-flex items-center gap-1 text-[13px] font-medium text-accent hover:underline">
+                Read the full brief <Icon name="arrowRight" className="size-3.5" />
+              </Link>
+            ) : null}
             <Highlights brief={brief} />
           </>
         ) : (

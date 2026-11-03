@@ -28,7 +28,7 @@ export function AgentTab() {
       refreshKey={refreshKey}
       busyLabel={live?.busy.active ? live.busy.label : null}
       propertyId={propertyId}
-      className="h-[min(760px,calc(100dvh-180px))] min-h-[560px]"
+      className="h-[calc(100dvh-7rem)] min-h-[420px] sm:h-[min(760px,calc(100dvh-180px))] sm:min-h-[560px]"
     />
   );
 }

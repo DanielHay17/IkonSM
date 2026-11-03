@@ -8,7 +8,9 @@ export default defineConfig({
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
       remoteBindings: false,
-      miniflare: { bindings: { HUB_PASSCODE: "test-pass", SESSION_SECRET: "test-secret" } },
+      // ANTHROPIC_API_KEY and CF_AIG_TOKEN are forced empty so tests always use the rules/template engines,
+      // even if .dev.vars has a key or an AI Gateway token (LLM_PROVIDER "auto" then resolves to off).
+      miniflare: { bindings: { HUB_PASSCODE: "test-passcode-1234", SESSION_SECRET: "test-secret", ANTHROPIC_API_KEY: "", CF_AIG_TOKEN: "" } },
     }),
   ],
   test: { include: ["test/**/*.spec.ts"], testTimeout: 30000 },

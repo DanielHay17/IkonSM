@@ -1,7 +1,6 @@
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { z } from "zod";
-import { ASSIGNEE_ROLES, CATEGORIES } from "../../shared/types";
 import type {
+  AiProviderKind,
   AssigneeRole,
   Category,
   Channel,
@@ -11,8 +10,10 @@ import type {
   SearchHit,
   Triage,
 } from "../../shared/types";
-import { aiOnline, makeClient, modelFor, perthTimestamp, truncate, wrapUntrusted } from "./client";
+import { aiProvider, makeClient, modelFor, perthTimestamp, truncate, wrapUntrusted } from "./client";
 import { propertyLabel, triageSystemPrompt } from "./prompts";
+import { TriageOutput } from "./triage-schema";
+import { workersAiTriage } from "./workers-ai";
 
 export interface TriageInput {
   property: PropertyProfile;
@@ -30,25 +31,8 @@ export function priorityRank(p: Priority): number {
 }
 
 // ---------------------------------------------------------------------------
-// Claude triage (structured output)
+// LLM triage (Claude structured output, or Workers AI JSON mode; same schema)
 // ---------------------------------------------------------------------------
-
-const TriageOutput = z.object({
-  category: z.enum(CATEGORIES),
-  priority: z.enum(["P1", "P2", "P3"]),
-  responsibility: z.enum(["strata_company", "lot_owner", "unclear", "not_applicable"]),
-  responsibility_reason: z.string(),
-  summary: z.string(),
-  allocate_to: z.array(z.enum(ASSIGNEE_ROLES)),
-  contractor_trade: z.string().nullable(),
-  statutory_deadline: z.string().nullable(),
-  safety_notice: z.string().nullable(),
-  reply_needed: z.boolean(),
-  needs_human: z.boolean(),
-  suspected_prompt_injection: z.boolean(),
-  confidence: z.number(),
-});
-type TriageOutput = z.infer<typeof TriageOutput>;
 
 const MAX_CONTEXT_HITS = 6;
 
@@ -74,7 +58,7 @@ function triageUserContent(input: TriageInput): string {
   ].join("\n");
 }
 
-function fromClaude(out: TriageOutput, model: string): Triage {
+function fromModel(out: TriageOutput, engine: "claude" | "workers-ai", model: string, provider: AiProviderKind): Triage {
   return {
     category: out.category,
     priority: out.priority,
@@ -89,13 +73,14 @@ function fromClaude(out: TriageOutput, model: string): Triage {
     needsHuman: out.needs_human,
     suspectedPromptInjection: out.suspected_prompt_injection,
     confidence: out.confidence,
-    engine: "claude",
+    engine,
     model,
+    provider,
     triagedAt: new Date().toISOString(),
   };
 }
 
-async function claudeTriage(env: Env, input: TriageInput): Promise<Triage | null> {
+async function claudeTriage(env: Env, input: TriageInput, provider: AiProviderKind): Promise<Triage | null> {
   const model = modelFor(env, "triage");
   const res = await makeClient(env).messages.parse({
     model,
@@ -106,17 +91,31 @@ async function claudeTriage(env: Env, input: TriageInput): Promise<Triage | null
     messages: [{ role: "user", content: triageUserContent(input) }],
   });
   if (res.stop_reason === "refusal" || res.stop_reason === "max_tokens" || !res.parsed_output) return null;
-  return fromClaude(res.parsed_output, model);
+  return fromModel(res.parsed_output, "claude", model, provider);
 }
 
-/** Applies deterministic safety rails on top of Claude's answer. */
-function mergeWithRules(ai: Triage, rules: Triage): Triage {
+async function workersTriage(env: Env, input: TriageInput): Promise<Triage | null> {
+  const res = await workersAiTriage(env, { system: triageSystemPrompt(), user: triageUserContent(input) });
+  return res ? fromModel(res.output, "workers-ai", res.model, "workers-ai") : null;
+}
+
+const WORK_CATEGORIES: readonly Category[] = ["maintenance", "insurance"];
+
+/** Applies deterministic safety rails on top of the model's answer. */
+export function mergeWithRules(ai: Triage, rules: Triage, signals: { paymentChange: boolean } = { paymentChange: false }): Triage {
   const merged: Triage = { ...ai };
   if (rules.priority === "P1" && ai.priority !== "P1") {
     merged.priority = "P1";
     merged.needsHuman = true;
     merged.allocateTo = [...rules.allocateTo, ...ai.allocateTo];
     merged.contractorTrade = ai.contractorTrade ?? rules.contractorTrade;
+    // A rules-detected emergency repair keeps its work category so it still gets a work order and dispatch.
+    if (WORK_CATEGORIES.includes(rules.category) && !WORK_CATEGORIES.includes(ai.category)) merged.category = rules.category;
+  }
+  if (signals.paymentChange) {
+    // Bank-detail change requests are verified by phone on a number already on file, never answered by email.
+    merged.replyNeeded = false;
+    merged.needsHuman = true;
   }
   if (rules.suspectedPromptInjection) merged.suspectedPromptInjection = true;
   if (rules.needsHuman && rules.confidence >= 0.6) merged.needsHuman = true;
@@ -143,22 +142,25 @@ function finalise(t: Triage): Triage {
   return out;
 }
 
-export async function triageMessage(env: Env, input: TriageInput): Promise<Triage> {
+/** `rulesOnly` skips the model (used when a sender or building is over its daily limit). */
+export async function triageMessage(env: Env, input: TriageInput, opts: { rulesOnly?: boolean } = {}): Promise<Triage> {
   const rules = rulesTriage(input);
-  if (!aiOnline(env)) return rules;
+  const provider = aiProvider(env);
+  if (provider.kind === "off" || opts.rulesOnly) return rules;
+  const name = provider.kind === "workers-ai" ? "Workers AI" : "Claude";
   try {
-    const ai = await claudeTriage(env, input);
-    if (ai) return mergeWithRules(ai, rules);
-    console.warn("triage: Claude returned no usable output; using rules");
-    return finalise({ ...rules, needsHuman: true });
+    const ai = provider.kind === "workers-ai" ? await workersTriage(env, input) : await claudeTriage(env, input, provider.kind);
+    if (ai) return mergeWithRules(ai, rules, { paymentChange: has(signals(input), P.paymentChange) });
+    console.warn(`triage: ${name} returned no usable output; using rules`);
   } catch (err) {
-    console.warn("triage: Claude call failed; using rules", err instanceof Error ? err.message : err);
-    return rules;
+    console.warn(`triage: ${name} call failed; using rules`, err instanceof Error ? err.message : err);
   }
+  // The model was expected but did not answer: a human checks the rules engine's result.
+  return finalise({ ...rules, needsHuman: true });
 }
 
 // ---------------------------------------------------------------------------
-// Deterministic rules engine (no API key, tests, and Claude failures)
+// Deterministic rules engine (AI off, tests, and model failures)
 // ---------------------------------------------------------------------------
 
 interface Signals {
@@ -202,6 +204,10 @@ const SAFETY = {
   structural: "Keep everyone well clear of the damaged area. Call 000 if anyone is hurt or in immediate danger, and the SES on 132 500 for storm damage to the roof.",
   security: "If a crime is in progress or anyone is at risk, call police on 000 and don't confront anyone. Keep the area clear until it has been made secure.",
   injury: "Call 000 for an ambulance if anyone is seriously hurt. If it is safe, keep others away from the hazard so no one else is injured.",
+  threat: "If you are in danger now, call police on 000. Stay somewhere safe, lock your door and don't confront the person.",
+  fallHazard: "Keep everyone, especially children, off the balcony or stairs until it has been made safe. Call 000 if anyone is hurt.",
+  asbestos:
+    "Ask for the work to stop now and keep people, especially children, away from the dust. Don't sweep, vacuum or hose it. We'll arrange a licensed asbestos assessor.",
 } as const;
 
 const RESPONSIBILITY = {
@@ -239,8 +245,13 @@ const P = {
     /\b(change|changed|update|updated|new)\b[^.\n]{0,30}\b(bank|bsb|payment|remittance)\b[^.\n]{0,15}\b(details|account|information)\b/,
   spam: /\b(seo (services|agency|ranking)|backlinks?|guest post|cryptocurrency|bitcoin|forex|viagra|casino|lottery|you have won|claim your prize|increase your (sales|traffic|rankings)|web design services|marketing services for your business)\b/,
   cigaretteContext: /\b(cigarettes?|smoking|smoker|smokers|vap(e|es|ing)|bbq|barbecue|incense)\b/,
-  fire: /\b(on fire|caught fire|catching fire|fire in (the|my|our|a|unit|lot|apartment|building|garage|car ?park|bin|kitchen|stairwell)|(small|big|large|kitchen|bin|car|electrical|grass) fire|flames?|is burning|fire (is )?spreading|fire brigade|firefighters?|dfes|evacuat(e|ed|ing)\b)/,
-  alarmSounding: /\b(fire|smoke) alarms? (is |are |has |have |keeps? )?(going off|sounding|ringing|activated|went off|been going off)/,
+  fire: /\b(on fire|caught fire|catching fire|fire in (the|my|our|a|unit|lot|apartment|building|garage|car ?park|bin|kitchen|stairwell)|(small|big|large|kitchen|bin|car|electrical|grass) fire|flames?|is burning|fire (is )?spreading|fire brigade|firefighters?|firies|fire (truck|engine)s?|dfes|evacuat(e|ed|ing)\b)/,
+  alarmSounding:
+    /\b(fire|smoke|building|evacuation) alarms?\b[^.\n]{0,50}\b(going off|gone off|sounding|ringing|activated|went off|won't stop|wont stop|keeps (going|sounding|ringing))/,
+  /** A building (common-area) fire alarm, as opposed to a smoke alarm inside one lot. */
+  buildingAlarm:
+    /\b(fire alarm|evacuation alarm|building alarm|alarms? (in|on) (the )?(\w+ )?(stairwell|stairs|corridor|hallway|lobby|foyer|car ?park|building|common area)|(building|stairwell|corridor|hallway|lobby|common area)'?s? (fire |smoke )?alarm)\b/,
+  evacuationCue: /\b(evacuat\w*|get out|should (we|i) (leave|get out)|everyone (is |was )?(outside|out)|firies|fire (truck|engine)s?)\b/,
   falseAlarmContext: /\b(cook\w*|toast\w*|steam|false alarm|battery|beep\w*|chirp\w*)\b/,
   smoke: /\b(smoke (is |was )?(coming|pouring|billowing|filling|everywhere|in the)|(full of|thick|black|see|seeing|smell(s|ing)?( of)?) smoke|smell(s|ing)?( of)? burning|burning smell)/,
   gas: /\b(smell(s|ing)?( of)? gas|gas (leak|leaking|smell)|leaking gas|gas is leaking)\b/,
@@ -248,12 +259,15 @@ const P = {
     /\b(sparking|sparks (coming|flying|from)|electrical fire|exposed (live )?wir(es|ing)|live wires?|electric(al)? shock|electrocut\w*|(power point|powerpoint|socket|outlet|switchboard|meter box) (is )?(smoking|melting|burning|sparking|on fire))/,
   liftStuck:
     /\b((stuck|trapped|locked) in (the |a )?(lift|elevator)|(lift|elevator)s? (is |has |got )?(stuck|jammed|stopped between)|(lift|elevator)\b[^.\n]{0,40}\b(trapped|someone (is )?(stuck|inside)|people (are )?(stuck|inside)))/,
+  /** "The lift doors won't open and my neighbour is inside": combined with a person cue in the same message. */
+  liftPersonInside:
+    /\b(lift|elevator)s?\b[^.\n]{0,80}\b(inside|in there|in it|can't get out|cannot get out|not answering|trapped|stuck)\b/,
+  liftPerson: /\b(someone|somebody|people|person|neighbou?r|she|he|child|kid|kids|baby|mum|dad|resident|elderly|my (wife|husband|partner|son|daughter|mother|father))\b/,
   waterStrong: new RegExp(
     [
       String.raw`\b(burst|bursting|broken|split|ruptured)( water| hot water| flexi(ble)?| washing machine)? (pipe|main|hose|line)s?\b`,
       String.raw`\b(pipe|main|hose)s? (has |have )?(burst|split|ruptured)`,
       String.raw`\bwater (is |was |keeps |has been )?(pouring|gushing|flooding|spraying|streaming|bursting|rushing|cascading|everywhere|leaking everywhere)`,
-      String.raw`\bflood(ed|ing)\b|\b(a|the) flood in\b`,
       String.raw`\bceiling (is |has )?(collapsing|collapsed|caving|caved|sagging|bulging)`,
       String.raw`\bsewage (is )?(coming up|everywhere|backing up|overflowing|leaking)|\bsewer(age)? overflow`,
     ].join("|"),
@@ -267,6 +281,24 @@ const P = {
   ),
   minorLeak: /\b((slow|small|minor|slight|tiny|occasional)(ly)? (leak|drip)\w*|dripping tap|drip(s|ping)? (occasionally|sometimes|when it rains))\b/,
   sewage: /\bsew(age|er)\b/,
+  flood: /\bflood(ed|ing)\b|\b(a|the) flood in\b/,
+  /** A flood mentioned in the past or as an insurance question ("flooded last year", "flood cover"). */
+  pastFlood: /\b(last (year|month|week|summer|winter)|years? ago|months? ago|previous(ly)?|flood cover|insurance|insured|policy)\b/,
+  presentWater: /\b(now|right now|currently|still|at the moment|today|tonight|is (pouring|leaking|flooding|coming)|are (pouring|leaking|flooding|coming))\b/,
+  threat:
+    /\b(knife|knives|machete|weapon|gun|firearm|threaten\w* (to (kill|hurt|stab|bash)|me with|my life)|assault\w*|attacked me|hit me|punched (me|him|her)|stalk\w*|domestic violence)\b/,
+  threatUrgent: /\b(tonight|right now|just now|scared|afraid|frightened|terrified)\b/,
+  fallHazard:
+    /\b(balustrades?|handrails?|hand rails?|railings?|balcony rails?|stair (treads?|nosings?)|nosings?|treads?)\b[^.\n]{0,40}\b(loose|wobbl\w*|unstable|come away|coming away|came away|missing|broken|moving|gave way)\b|\b(loose|wobbly|broken|missing)\b[^.\n]{0,20}\b(balustrades?|handrails?|railings?|nosings?)\b/,
+  fallUrgent: /\b(kids|child|children|toddler|lean\w*|fell|fall\w*)\b/,
+  asbestos:
+    /\b(asbestos|fibro|fibre cement|ac sheet\w*)\b|\b(drill\w*|cut\w*|sand\w*|grind\w*|smash\w*|broken)\b[^.\n]{0,40}\b(eaves|eave lining|meter box)\b/,
+  asbestosUrgent: /\b(dust|drill\w*|cut\w*|sand\w*|grind\w*|kids|children|child)\b/,
+  injuryHazard: /\b(nosings?|treads?|stairs?|steps?|handrails?|balustrades?|railings?|paving|path|tiles?)\b/,
+  injuryHazardDamage: /\b(broken|loose|cracked|damaged|uneven|missing|lifted|slippery|wet)\b/,
+  /** Someone asking for another person's contact details (privacy: needs a human). */
+  contactRequest:
+    /\b(phone|mobile|number|email|e-mail|contact details|address)\b[^.\n]{0,20}\b(of|for)\b[^.\n]{0,10}\b(owner|occupier|tenant|person|resident|neighbou?r)s?\b[^.\n]{0,10}\b(of|in|at|from)\b/,
   structural:
     /\b((roof|ceiling|wall|balcony|balustrade|awning|carport|fence)s? (has |have )?(collapsed|caved in|blown off|torn off|come down|fallen)|(tree|branch|limb)s? (has |have )?(fallen|come down|crashed|landed)|fallen tree|storm damage|(roof|window)s? (is |are |was |were )?(smashed|blown in|torn)|structural (crack|damage|failure|movement)|unsafe (balcony|balustrade|stairs?|structure|building))/,
   security:
@@ -276,7 +308,7 @@ const P = {
   injury:
     /\b(fell|slipped|tripped|was injured|got injured|is injured|got hurt|is hurt|hurt (himself|herself|themselves|myself)|broke (my|his|her) (arm|leg|wrist|ankle))\b/,
   salesStrong:
-    /\b(s\.?\s?(107|108|109|110)\b|section (107|108|109|110)\b|(107|110) certificate|disclosure (statement|request)|precontractual|pre-contractual|strata (search|report)|settlement agent)/,
+    /\b(s\.?\s?(107|108|109|110)\b|section (107|108|109|110)\b|(107|110) certificate|disclosure (statement|request)|precontractual|pre-contractual|strata (search|report)|settlement agent|form (28|29)\b|s\.?\s?69a?\b|section 69a?\b|strata (company )?certificate)/,
   salesWeak:
     /\b(settlement|settling|disclosure|conveyanc\w*|selling (my|the|our|this) (unit|apartment|lot|property|villa|townhouse|home)|sale of (my|the|our|this|lot|unit)|prospective (buyer|purchaser)|buyers?|purchasers?|certificate)\b/,
   s109: /\b(s\.?\s?109|section 109|inspect(ion of)? (the )?(strata |company )?(records|books))\b/,
@@ -299,7 +331,7 @@ const P = {
   conduct:
     /\b(noise|noisy|loud|music|(?<!third )part(y|ies)|parking|parked|park(s|ing)? (in|on|across)|car bay|visitor bays?|towed|bark(s|ing)?|smok(ing|er|ers)|cigarettes?|vap(e|es|ing)|rubbish|litter(ing)?|airbnb|short[- ]stay|holiday (let|rental)|nuisance|harass\w*|abusive|threaten\w*|anti-?social|drying (clothes|washing)|washing on (the )?balcony)\b/,
   governance:
-    /\b(agm|egm|general meeting|annual general|minutes|prox(y|ies)|motions?|agenda|council (meeting|election|member)|nominat\w* for (the )?council|quorum|resolutions?|vote|voting|budget|records request|roll of owners|meeting notice)\b/,
+    /\b(agm|egm|general meeting|annual general|(meeting|agm|egm|council) minutes|minutes (of|from) (the )?(last |previous |latest )?(meeting|agm|egm|council|general meeting)|the minutes|prox(y|ies)|motions?|agenda|council (meeting|election|member)|nominat\w* for (the )?council|quorum|resolutions?|vote|voting|budget|records request|roll of owners|meeting notice)\b/,
   leak: /\b(leak(s|ing|y|ed)?|drip(s|ping)?|damp(ness)?|water stain(s|ed)?|seep(s|ing|age)|moisture|water damage|mou?ld)\b/,
   blocked:
     /(\bblock(ed|age)\b[^.\n]{0,30}\b(drain|sewer|toilet|pipe|stormwater|gutter|downpipe|sink)|\b(drain|sewer|toilet|sink|stormwater)s? (is |are )?(blocked|backing up|overflowing))/,
@@ -391,25 +423,43 @@ function salesOutcome(s: Signals, confidence: number): Outcome {
   };
 }
 
+/**
+ * A sounding fire alarm is an emergency. Cooking or toast only explains away a smoke alarm inside one lot,
+ * never the building's fire alarm or a message that talks about getting out.
+ */
+function buildingAlarmSounding(s: Signals): boolean {
+  if (!has(s, P.alarmSounding)) return false;
+  return !has(s, P.falseAlarmContext) || has(s, P.buildingAlarm) || has(s, P.evacuationCue);
+}
+
 /** Ordered: the first matching rule decides category and priority. */
 const RULES: Rule[] = [
   {
     name: "fire_gas_electrical",
+    // "On fire" or "flames" is a fire whatever else is mentioned; only a smoke smell can be a neighbour's cigarette or BBQ.
     test: (s) =>
       has(s, P.gas) ||
       has(s, P.electrical) ||
-      ((has(s, P.fire) || has(s, P.smoke)) && !has(s, P.cigaretteContext)) ||
-      (has(s, P.alarmSounding) && !has(s, P.falseAlarmContext)),
+      has(s, P.fire) ||
+      (has(s, P.smoke) && !has(s, P.cigaretteContext)) ||
+      buildingAlarmSounding(s),
     outcome: (s) => {
       const gas = has(s, P.gas);
       const electrical = !gas && has(s, P.electrical);
+      const alarmOnly = !gas && !electrical && !has(s, P.fire) && !has(s, P.smoke);
       return {
         category: "maintenance",
         priority: "P1",
         allocateTo: gas || electrical ? ["emergency_services", "contractor", "strata_manager"] : ["emergency_services", "strata_manager", "insurer"],
         contractorTrade: gas ? "gas fitter" : electrical ? "electrician" : null,
-        summary: gas ? "EMERGENCY: gas smell / leak reported" : electrical ? "EMERGENCY: sparking or exposed electrics" : "EMERGENCY: fire or smoke reported",
-        confidence: 0.8,
+        summary: gas
+          ? "EMERGENCY: gas smell reported"
+          : electrical
+            ? "EMERGENCY: sparking or exposed electrics"
+            : alarmOnly
+              ? "EMERGENCY: building fire alarm sounding"
+              : "EMERGENCY: fire or smoke reported",
+        confidence: alarmOnly && has(s, P.falseAlarmContext) ? 0.6 : 0.8,
         safetyNotice: gas ? SAFETY.gas : electrical ? SAFETY.electrical : SAFETY.fire,
         responsibility: "unclear",
         responsibilityReason: RESPONSIBILITY.makeSafeFirst,
@@ -418,7 +468,7 @@ const RULES: Rule[] = [
   },
   {
     name: "lift_entrapment",
-    test: (s) => has(s, P.liftStuck),
+    test: (s) => has(s, P.liftStuck) || (has(s, P.liftPersonInside) && has(s, P.liftPerson)),
     outcome: () => ({
       category: "maintenance",
       priority: "P1",
@@ -433,7 +483,11 @@ const RULES: Rule[] = [
   },
   {
     name: "water_emergency",
-    test: (s) => has(s, P.waterStrong) || (has(s, P.waterEntering) && !has(s, P.minorLeak)),
+    // The word "flooded" alone is not enough when it is about the past or insurance cover.
+    test: (s) =>
+      has(s, P.waterStrong) ||
+      (has(s, P.waterEntering) && !has(s, P.minorLeak)) ||
+      (has(s, P.flood) && !(has(s, P.pastFlood) && !has(s, P.presentWater))),
     outcome: (s) => {
       const sewage = has(s, P.sewage);
       return {
@@ -463,6 +517,23 @@ const RULES: Rule[] = [
     }),
   },
   {
+    name: "asbestos",
+    test: (s) => has(s, P.asbestos),
+    outcome: (s) => ({
+      category: "maintenance",
+      priority: has(s, P.asbestosUrgent) ? "P1" : "P2",
+      allocateTo: ["strata_manager", "senior_manager"],
+      // A licensed asbestos assessor is arranged by the strata manager; none is in the contractor list.
+      contractorTrade: null,
+      summary: "Possible asbestos disturbed: stop work, licensed assessor needed",
+      confidence: 0.7,
+      safetyNotice: SAFETY.asbestos,
+      needsHuman: true,
+      responsibility: "unclear",
+      responsibilityReason: RESPONSIBILITY.makeSafeFirst,
+    }),
+  },
+  {
     name: "security",
     test: (s) => has(s, P.security),
     outcome: (s) => ({
@@ -477,15 +548,32 @@ const RULES: Rule[] = [
     }),
   },
   {
+    name: "threat_violence",
+    test: (s) => has(s, P.threat),
+    outcome: (s) => ({
+      category: "bylaws_conduct",
+      priority: has(s, P.crimeInProgress) || has(s, P.threatUrgent) ? "P1" : "P2",
+      allocateTo: ["emergency_services", "senior_manager", "strata_manager"],
+      contractorTrade: null,
+      summary: "Threat or violence reported: police matter, escalate to a senior manager",
+      confidence: 0.7,
+      safetyNotice: SAFETY.threat,
+      needsHuman: true,
+      ...notRepair,
+    }),
+  },
+  {
     name: "injury",
     test: (s) => has(s, P.injuryAcute) || has(s, P.injury),
     outcome: (s) => {
       const acute = has(s, P.injuryAcute);
+      // A broken stair nosing or loose handrail behind the fall needs a make-safe work order too.
+      const hazardTrade = has(s, P.injuryHazard) && has(s, P.injuryHazardDamage) ? "builder" : null;
       return {
         category: "insurance",
         priority: acute ? "P1" : "P2",
         allocateTo: acute ? ["emergency_services", "strata_manager", "insurer"] : ["strata_manager", "insurer"],
-        contractorTrade: null,
+        contractorTrade: hazardTrade,
         summary: acute ? "EMERGENCY: injury reported on site" : "Injury / incident reported (possible public liability)",
         confidence: 0.6,
         safetyNotice: acute ? SAFETY.injury : undefined,
@@ -494,6 +582,21 @@ const RULES: Rule[] = [
         responsibilityReason: "Possible public liability matter for the strata company's insurer; do not admit liability. Record what happened, where and when.",
       };
     },
+  },
+  {
+    name: "fall_hazard",
+    test: (s) => has(s, P.fallHazard),
+    outcome: (s) => ({
+      category: "maintenance",
+      priority: has(s, P.fallUrgent) ? "P1" : "P2",
+      allocateTo: ["contractor", "strata_manager"],
+      contractorTrade: "builder",
+      summary: "Fall hazard: loose or broken balustrade, handrail or stair",
+      confidence: 0.7,
+      safetyNotice: SAFETY.fallHazard,
+      responsibility: "strata_company",
+      responsibilityReason: RESPONSIBILITY.commonProperty,
+    }),
   },
   {
     name: "spam",
@@ -700,16 +803,33 @@ function subjectHint(input: TriageInput): string {
   return oneLine ? ` - "${truncate(oneLine, 70, "…")}"` : "";
 }
 
+/** Bank-detail change requests: verified by phone on a number already on file, never answered or actioned by email. */
+function paymentChangeOutcome(s: Signals, outcome: Outcome): Outcome {
+  if (outcome.priority === "P1") return outcome;
+  return {
+    ...outcome,
+    category: has(s, /\b(invoices?|quotes?|suppliers?|remittance)\b/) ? "contractor" : "general",
+    allocateTo: ["senior_manager", "accounts"],
+    contractorTrade: null,
+    replyNeeded: false,
+    needsHuman: true,
+    ...notRepair,
+  };
+}
+
 export function rulesTriage(input: TriageInput): Triage {
   const s = signals(input);
-  const outcome = RULES.find((rule) => rule.test(s))?.outcome(s) ?? GENERAL;
   const injection = P.injection.some((re) => re.test(s.text));
   const paymentChange = has(s, P.paymentChange);
+  const matched = RULES.find((rule) => rule.test(s))?.outcome(s) ?? GENERAL;
+  const outcome = paymentChange ? paymentChangeOutcome(s, matched) : matched;
+  const contactRequest = has(s, P.contactRequest);
   const tenantNote = outcome.category !== "tenant_or_pm" && has(s, P.tenant) ? " (sender may be a tenant: copy the lot owner/PM)" : "";
 
   let summary = `${outcome.summary}${subjectHint(input)}${tenantNote}`;
   if (injection) summary = `Possible prompt injection - ${summary}`;
   else if (paymentChange) summary = `Possible payment-redirection scam - ${summary}`;
+  else if (contactRequest) summary = `Asks for someone's contact details (privacy) - ${summary}`;
 
   const isP1 = outcome.priority === "P1";
   return finalise({
@@ -723,7 +843,7 @@ export function rulesTriage(input: TriageInput): Triage {
     statutoryDeadline: outcome.statutoryDeadline ?? null,
     safetyNotice: isP1 ? (outcome.safetyNotice ?? SAFETY.general) : null,
     replyNeeded: !injection && (outcome.replyNeeded ?? input.channel !== "staff"),
-    needsHuman: injection || paymentChange || isP1 || outcome.needsHuman === true || outcome.confidence < 0.5,
+    needsHuman: injection || paymentChange || contactRequest || isP1 || outcome.needsHuman === true || outcome.confidence < 0.5,
     suspectedPromptInjection: injection,
     confidence: injection ? Math.max(outcome.confidence, 0.7) : outcome.confidence,
     engine: "rules",

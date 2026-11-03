@@ -94,7 +94,7 @@ function SidebarFooter() {
   return (
     <div className="border-t border-white/10 p-3">
       <div className="mb-3 px-1">
-        <AiStatusPill online={session.aiOnline} tone="dark" />
+        <AiStatusPill online={session.aiOnline} ai={session.ai} tone="dark" />
       </div>
       <div className="flex items-center gap-3 rounded-lg px-1">
         <span

@@ -16,6 +16,7 @@ import { usePropertyLive } from "../hooks/usePropertyLive";
 import { useResource } from "../hooks/useResource";
 import { plural, propertyAddress, propertyLabel } from "../lib/format";
 import { usePortfolio } from "../providers/PortfolioProvider";
+import { useSession } from "../providers/SessionProvider";
 import { paths, type BuildingTab } from "../router";
 import { AgentTab } from "./building/AgentTab";
 import { BuildingContext, type BuildingContextValue } from "./building/BuildingContext";
@@ -44,7 +45,7 @@ function BuildingHeader({
 }: {
   profile: PropertyProfile;
   counts: PropertyCounts;
-  context: Pick<BuildingContextValue, "aiOnline" | "liveMode" | "live">;
+  context: Pick<BuildingContextValue, "aiOnline" | "ai" | "liveMode" | "live">;
   onSimulate: () => void;
 }) {
   return (
@@ -63,14 +64,14 @@ function BuildingHeader({
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-[26px]">SP {profile.spNumber}</h1>
             <PropertyStatusPill status={profile.status} />
-            <AiStatusPill online={context.aiOnline} />
+            <AiStatusPill online={context.aiOnline} ai={context.ai} />
           </div>
           <p className="mt-1 text-[15px] text-ink-soft">
             {propertyAddress(profile)}
             {profile.lots ? <span className="text-muted"> · {plural(profile.lots, "lot")}</span> : null}
           </p>
-          {profile.notes ? <p className="mt-1 text-[13px] text-amber-800">{profile.notes}</p> : null}
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-1 gap-y-1">
+          {profile.notes ? <p className="mt-1 hidden text-[13px] text-amber-800 sm:block">{profile.notes}</p> : null}
+          <div className="mt-2.5 hidden flex-wrap items-center gap-x-1 gap-y-1 sm:flex">
             <span className="text-[13px] text-muted">Agent email</span>
             <span className="rounded-md bg-subtle px-2 py-0.5 font-mono text-[13px] text-ink ring-1 ring-line ring-inset">{profile.emailAddress}</span>
             <CopyButton text={profile.emailAddress} label="Copy agent email address" />
@@ -86,7 +87,8 @@ function BuildingHeader({
 
       <BusyIndicator busy={context.live?.busy} className="px-5 pt-3 empty:p-0 sm:px-6" />
 
-      <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-line bg-subtle/70 px-5 py-3.5 sm:grid-cols-5 sm:px-6">
+      {/* On a phone the tab bubbles already show these counts, so the header stays short. */}
+      <dl className="mt-4 hidden grid-cols-2 gap-4 border-t border-line bg-subtle/70 px-5 py-3.5 sm:grid sm:grid-cols-5 sm:px-6">
         <Stat label="Open threads" value={counts.openThreads} />
         <Stat label="P1 open" value={counts.p1Open} alert />
         <Stat label="Pending approvals" value={counts.pendingApprovals} />
@@ -151,6 +153,8 @@ export function BuildingPage({ propertyId, tab, threadId }: { propertyId: string
   const profile = overview.data?.profile ?? live.state?.profile ?? card?.profile ?? null;
   const counts = live.state?.counts ?? overview.data?.counts ?? card?.counts ?? EMPTY_COUNTS;
   const aiOnline = live.state?.aiOnline ?? overview.data?.aiOnline ?? false;
+  const { session } = useSession();
+  const ai = live.state?.ai ?? session.ai ?? null;
 
   // Keep the sidebar's P1 dots and approvals badge in step with this building's live counts.
   const { reload: reloadPortfolio } = portfolio;
@@ -176,11 +180,12 @@ export function BuildingPage({ propertyId, tab, threadId }: { propertyId: string
             liveMode: live.mode,
             refreshKey: live.refreshKey,
             aiOnline,
+            ai,
             reloadOverview: overview.reload,
             openSimulate: () => setSimulateOpen(true),
           }
         : null,
-    [propertyId, profile, overview.data, overview.reload, live.state, live.mode, live.refreshKey, aiOnline],
+    [propertyId, profile, overview.data, overview.reload, live.state, live.mode, live.refreshKey, aiOnline, ai],
   );
 
   if (!context) {

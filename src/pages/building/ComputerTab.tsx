@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { PROVIDER_NAMES } from "../../../shared/engines";
 import { VAULT_FOLDERS, type ActivityEvent, type ActivityKind, type DocMeta, type MemoryNote, type Thread } from "../../../shared/types";
 import { api } from "../../api";
 import { Button, IconButton } from "../../components/Button";
@@ -8,7 +9,7 @@ import { textareaClasses } from "../../components/Field";
 import { Icon } from "../../components/Icon";
 import { LiveModeIndicator } from "../../components/LiveStatus";
 import { Skeleton, SkeletonList } from "../../components/Skeleton";
-import { AiStatusPill } from "../../components/StatusBadges";
+import { AiStatusPill, triageEngineText } from "../../components/StatusBadges";
 import { useToast } from "../../components/Toast";
 import { useResource } from "../../hooks/useResource";
 import { cx } from "../../lib/cx";
@@ -66,7 +67,7 @@ function ActivityTerminal({ events, loading, error, onRetry }: { events: Activit
           <span className="size-2.5 rounded-full bg-[#28c840]/80" />
         </span>
         <h2 id="terminal-title" className="min-w-0 flex-1 truncate font-mono text-xs text-navy-text">
-          {propertyId} · agent activity
+          {propertyId.replace(/^sp-/i, "SP ")} · agent activity
         </h2>
         <LiveModeIndicator mode={liveMode} className="text-navy-muted!" />
       </div>
@@ -133,31 +134,29 @@ function ActivityTerminal({ events, loading, error, onRetry }: { events: Activit
   );
 }
 
-function latestClaudeModel(threads: Thread[] | undefined): string | null {
+/** Engine of the most recent triage, so staff see what actually ran, not just what is configured. */
+function latestTriageEngine(threads: Thread[] | undefined): string | null {
   const triaged = (threads ?? [])
-    .filter((t) => t.triage?.engine === "claude" && t.triage.model)
+    .filter((t) => t.triage)
     .sort((a, b) => (b.triage?.triagedAt ?? "").localeCompare(a.triage?.triagedAt ?? ""));
-  return triaged[0]?.triage?.model ?? null;
+  const triage = triaged[0]?.triage;
+  return triage ? triageEngineText(triage) : null;
 }
 
 function StatusCard({ threads }: { threads: Thread[] | undefined }) {
-  const { live, liveMode, aiOnline } = useBuilding();
-  const model = latestClaudeModel(threads);
+  const { live, liveMode, aiOnline, ai } = useBuilding();
+  const lastTriage = latestTriageEngine(threads);
   const busy = live?.busy.active ? live.busy : null;
+  const provider = ai?.provider ?? (aiOnline ? null : "off");
 
   const rows: [string, ReactNode][] = [
-    ["AI", <AiStatusPill key="ai" online={aiOnline} />],
-    [
-      "Model",
-      aiOnline ? (
-        <span key="m" className="font-mono text-xs">{model ? `Claude ${model}` : "Claude (no triage run yet)"}</span>
-      ) : (
-        <span key="m">Rules engine (AI offline)</span>
-      ),
-    ],
+    ["AI", <AiStatusPill key="ai" online={aiOnline} ai={ai} />],
+    ["Provider", <span key="p">{provider ? PROVIDER_NAMES[provider] : "Unknown"}</span>],
+    ["Model", <span key="m" className="font-mono text-xs">{ai?.model ?? (aiOnline ? "-" : "None (rules engine)")}</span>],
+    ...(ai?.note ? ([["Setup", <span key="n" className="text-xs whitespace-normal" title={ai.note}>{ai.note}</span>]] as [string, ReactNode][]) : []),
+    ["Last triage", <span key="t" className="text-xs">{lastTriage ?? "No triage run yet"}</span>],
     ["Status", busy ? <span key="s" className="font-medium text-accent-strong">Working: {busy.label ?? "busy"}</span> : <span key="s">Idle</span>],
     ["Connection", <LiveModeIndicator key="c" mode={liveMode} />],
-    ["State version", <span key="v" className="font-mono text-xs">{live ? `v${live.version}` : "-"}</span>],
     ["Last change", <span key="u">{live?.updatedAt ? timeAgo(live.updatedAt) : "-"}</span>],
   ];
 

@@ -20,11 +20,23 @@
   // Outbound email. Unrestricted binding: requires the domain to be onboarded to
   // Cloudflare Email Service (sending) in production. Locally, sends are written to .wrangler/tmp/email.
   "send_email": [{ "name": "EMAIL" }],
+  // Workers AI (fallback LLM when Claude is not available). It always runs remotely, so it is
+  // only used when LLM_PROVIDER is "workers-ai"; local dev and tests keep remoteBindings off.
+  "ai": { "binding": "AI" },
+  // Passcode login attempts per client IP (CF-Connecting-IP): 10 a minute, to slow guessing.
+  "ratelimits": [{ "name": "LOGIN_LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } }],
   "vars": {
     "APP_NAME": "Ikon Command Hub",
     "COMPANY_NAME": "Ikon Strata Management",
     // Domain the building agents receive email on, e.g. sp26707@<EMAIL_DOMAIN>
     "EMAIL_DOMAIN": "ikon.example.com",
+    // Which LLM the agents use: "auto" | "anthropic" | "gateway" | "workers-ai" | "off".
+    // auto: ANTHROPIC_API_KEY -> Claude direct; else CF_AIG_TOKEN + CF_ACCOUNT_ID + AI_GATEWAY_ID ->
+    // Claude via Cloudflare AI Gateway (unified billing, no Anthropic key); else off (rules/templates).
+    // Workers AI is never picked by auto: set "workers-ai" explicitly.
+    "LLM_PROVIDER": "auto",
+    // Workers AI model for LLM_PROVIDER="workers-ai" (messages + response_format json_schema).
+    "WORKERS_AI_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
     // Claude models
     "MODEL_AGENT": "claude-sonnet-5-5",
     "MODEL_TRIAGE": "claude-haiku-5-5",

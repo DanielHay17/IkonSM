@@ -1,8 +1,11 @@
 // Domain-specific badges: priority, statuses, engines and document flags, so every screen
 // shows the same signal the same way.
 
+import { engineLabel, providerLabel } from "../../shared/engines";
 import {
   CATEGORY_LABELS,
+  type AiInfo,
+  type Approval,
   type ApprovalStatus,
   type Category,
   type Channel,
@@ -109,12 +112,27 @@ export const CHANNEL_META: Record<Channel, { label: string; icon: IconName }> = 
   staff: { label: "Staff note", icon: "pencil" },
 };
 
-/** "Claude <model>" when Claude triaged it, "Rules engine (AI offline)" otherwise. Never blurs the two. */
-export function TriageEngineBadge({ triage }: { triage: Pick<Triage, "engine" | "model"> }) {
+/** Short text for a triage result's engine, e.g. "Claude claude-haiku-5-5" or "Workers AI @cf/…". */
+export function triageEngineText(triage: Pick<Triage, "engine" | "model" | "provider">): string {
+  return triage.engine === "rules" ? "Rules engine (AI offline)" : engineLabel(triage.engine, triage.model, triage.provider);
+}
+
+/**
+ * Which engine triaged it: "Claude <model>", "Claude via Cloudflare AI Gateway (<model>)",
+ * "Workers AI <model>", or "Rules engine (AI offline)". Never blurs AI and rules output.
+ */
+export function TriageEngineBadge({ triage }: { triage: Pick<Triage, "engine" | "model" | "provider"> }) {
   if (triage.engine === "claude") {
     return (
-      <Badge tone="accent" icon="sparkles" title="Triaged by Claude">
-        Claude {triage.model ?? ""}
+      <Badge tone="accent" icon="sparkles" title={triage.provider === "gateway" ? "Triaged by Claude through Cloudflare AI Gateway" : "Triaged by Claude"}>
+        {triageEngineText(triage)}
+      </Badge>
+    );
+  }
+  if (triage.engine === "workers-ai") {
+    return (
+      <Badge tone="sky" icon="sparkles" title="Triaged by a Workers AI model (lighter than Claude), checked against the rules engine">
+        {triageEngineText(triage)}
       </Badge>
     );
   }
@@ -125,14 +143,18 @@ export function TriageEngineBadge({ triage }: { triage: Pick<Triage, "engine" | 
   );
 }
 
-export function DraftEngineBadge({ engine }: { engine: "claude" | "template" }) {
-  return engine === "claude" ? (
-    <Badge tone="accent" icon="sparkles">
-      Drafted by Claude
-    </Badge>
-  ) : (
-    <Badge tone="slate" icon="file" title="Safe template; no AI was used">
-      Template draft (AI offline)
+export function DraftEngineBadge({ approval }: { approval: Pick<Approval, "engine" | "model" | "provider"> }) {
+  if (approval.engine === "template") {
+    return (
+      <Badge tone="slate" icon="file" title="Safe template; no AI was used">
+        Template draft (no AI)
+      </Badge>
+    );
+  }
+  const label = engineLabel(approval.engine, approval.model, approval.provider);
+  return (
+    <Badge tone={approval.engine === "workers-ai" ? "sky" : "accent"} icon="sparkles" title={`Drafted by ${label}`}>
+      Drafted by {label}
     </Badge>
   );
 }
@@ -168,7 +190,16 @@ export function CompanyPolicyBadge() {
   );
 }
 
-export function AiStatusPill({ online, tone = "light" }: { online: boolean; tone?: "light" | "dark" }) {
+const PILL_TEXT: Record<AiInfo["provider"], string> = {
+  anthropic: "Claude online",
+  gateway: "Claude via AI Gateway",
+  "workers-ai": "Workers AI (light)",
+  off: "AI offline",
+};
+
+/** Online/offline pill that also names the provider, so a lighter model is never shown as plain "AI online". */
+export function AiStatusPill({ online, ai, tone = "light" }: { online: boolean; ai?: AiInfo | null; tone?: "light" | "dark" }) {
+  const text = online ? (ai && ai.provider !== "off" ? PILL_TEXT[ai.provider] : "AI online") : "AI offline";
   return (
     <span
       className={cx(
@@ -181,10 +212,16 @@ export function AiStatusPill({ online, tone = "light" }: { online: boolean; tone
             ? "bg-emerald-50 text-emerald-800 ring-emerald-200"
             : "bg-slate-100 text-slate-700 ring-slate-200",
       )}
-      title={online ? "Claude is connected" : "No API key configured: rules and templates only"}
+      title={
+        online
+          ? ai
+            ? providerLabel(ai)
+            : "AI connected"
+          : `No LLM in use: rules and templates only${ai?.note ? ` (${ai.note})` : ""}`
+      }
     >
       <span aria-hidden="true" className={cx("size-1.5 rounded-full", online ? "bg-emerald-500" : "bg-slate-400")} />
-      {online ? "AI online" : "AI offline"}
+      {text}
     </span>
   );
 }

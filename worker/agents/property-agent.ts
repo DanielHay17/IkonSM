@@ -13,12 +13,14 @@
  * - Records: tickets (work orders), contacts, documents and search, memory notes, activity log.
  * - Chat: staff talk to the building's agent through ai/agent-loop.runAgent; the Anthropic
  *   history is persisted append-only and the system prompt is frozen per conversation.
+ *   With LLM_PROVIDER="workers-ai" runAgent answers in a lighter one-pass mode instead.
  * - Live state (PropertyState): counts, busy indicator and recent activity, broadcast to
  *   read-only websocket clients. `version` bumps on every mutation so the hub refetches.
  */
 
 import { Agent, type Connection } from "agents";
 import type { AgentEmail } from "agents/email";
+import { EMAILED_UPLOAD_PREFIX } from "../../shared/types";
 import type {
   ActivityEvent,
   ActivityKind,
@@ -45,8 +47,9 @@ import type {
   TicketStatus,
   Triage,
 } from "../../shared/types";
-import { runAgent, type ToolHost } from "../ai/agent-loop";
-import { aiOnline } from "../ai/client";
+import { engineLabel } from "../../shared/engines";
+import { AgentRunError, runAgent, type ToolHost } from "../ai/agent-loop";
+import { aiInfo, aiOnline, aiProvider, offlineReason, perthDate, perthShort } from "../ai/client";
 import { draftReply as composeDraft } from "../ai/drafting";
 import { propertySystemPrompt } from "../ai/prompts";
 import { triageMessage } from "../ai/triage";
@@ -70,10 +73,12 @@ import {
   checkRecipient,
   clamp,
   cleanContact,
+  contractorLines,
   describeTicketChanges,
   errorText,
   formatAddress,
   isOneOf,
+  isReservedTestAddress,
   messageSender,
   needsTicket,
   historyUpdate,
@@ -82,6 +87,7 @@ import {
   nowIso,
   offlineAnswer,
   optionalText,
+  ownerToArrange,
   parseMessageIds,
   pickContractor,
   placeholderProfile,
@@ -100,6 +106,7 @@ import {
   ticketDescription,
   ticketDueAt,
   ticketNumber,
+  ticketTitle,
   toolLabel,
   triageDetail,
   triageHeadline,
@@ -107,6 +114,7 @@ import {
   DAY_MS,
 } from "./property-helpers";
 import {
+  ADDED_COLUMNS,
   DOC_COLUMNS,
   SCHEMA,
   parseJson,
@@ -140,8 +148,13 @@ const MAX_CHAT_CHARS = 8000;
 const ACTIVITY_RETENTION = 5000;
 const RECENT_ACTIVITY = 25;
 const LIST_LIMIT = 500;
-const OFFLINE_REASON =
-  "AI offline: Claude is not connected (no ANTHROPIC_API_KEY), so this is a plain document search rather than an AI answer.";
+/** Inbound emails per sender per Perth day before the agent stops drafting automatically and filing attachments. */
+const DAILY_SENDER_LIMIT = 10;
+/** Inbound emails per building per Perth day before the same limit applies to every sender. */
+const DAILY_BUILDING_LIMIT = 200;
+/** Chat notice when no LLM is in use. The technical reason goes to the activity log, not to staff. */
+const OFFLINE_NOTICE =
+  "AI offline: AI is switched off for this hub, so this is a plain search of this building's documents, not an AI answer.";
 
 export type PropertySeed = {
   docs: { folder: string; name: string; text: string; scope: "building" | "company"; sample: boolean }[];
@@ -166,8 +179,10 @@ type ChatReply = Pick<ChatMessage, "text" | "toolCalls" | "citations">;
 type NewApproval = Pick<
   Approval,
   "kind" | "title" | "rationale" | "draft" | "citations" | "threadId" | "ticketId" | "createdBy" | "engine"
->;
+> & { model: string | null; provider: Approval["provider"] };
 type WorkOrder = { ticket: Ticket; contractor: Contact | null; created: boolean };
+export type InboundLimit = { limited: boolean; reason: string | null };
+type SearchOptions = { includeEmailed?: boolean; perDoc?: number };
 type BusyJob = { label: string; since: string };
 type SqlValue = string | number | null;
 
@@ -202,6 +217,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
 
   async onStart(): Promise<void> {
     for (const ddl of SCHEMA) this.ctx.storage.sql.exec(ddl);
+    this.addMissingColumns();
     // A fresh instance has no work in flight, so this also clears a busy flag left by an evicted one.
     this.syncState(false);
   }
@@ -277,10 +293,20 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
         this.touch();
         return;
       }
-      const attachments = await this.fileAttachments(parsed.attachments, parsed.input.fromAddress);
+      // An Email Routing retry of a message already stored must not file its attachments again.
+      const messageId = normaliseMessageId(parsed.input.messageId);
+      if (messageId && this.findInboundByMessageId(messageId)) {
+        this.logActivity("email_in", `Ignored a repeat delivery of "${parsed.input.subject}" from ${parsed.input.fromAddress}`);
+        this.touch();
+        return;
+      }
+      const limit = this.countInbound(parsed.input.fromAddress);
+      const attachments = limit.limited
+        ? this.skipAttachments(parsed.attachments, parsed.input.fromAddress, limit.reason)
+        : await this.fileAttachments(parsed.attachments, parsed.input.fromAddress, messageId);
       await this.ingestMessage(
         { ...parsed.input, channel: "email", attachments: attachments.length ? attachments : parsed.input.attachments },
-        { process: "background" },
+        { process: "background", limit },
       );
     } catch (err) {
       this.logActivity("error", `Could not read an email from ${email.from}`, errorText(err));
@@ -288,15 +314,19 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     }
   }
 
+  /**
+   * `newThread` skips threading by sender and subject (the hub's Simulate panel starts a fresh thread each time).
+   * `limit` is the daily-limit decision made when an email arrived (onEmail), carried to the background run.
+   */
   async ingestMessage(
     input: InboundInput,
-    opts: { process?: "now" | "background" } = {},
+    opts: { process?: "now" | "background"; newThread?: boolean; limit?: InboundLimit } = {},
   ): Promise<{ threadId: string; messageId: string }> {
     const inbound = normaliseInbound(input);
     const duplicate = inbound.messageId ? this.findInboundByMessageId(inbound.messageId) : null;
     if (duplicate) return duplicate;
 
-    const thread = this.findThreadFor(inbound) ?? this.insertThread(inbound);
+    const thread = (opts.newThread ? null : this.findThreadFor(inbound)) ?? this.insertThread(inbound);
     const message = this.insertMessage({
       threadId: thread.id,
       direction: "inbound",
@@ -310,7 +340,16 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       references: inbound.references ?? null,
       attachments: inbound.attachments ?? [],
       author: null,
+      senderVerified: inbound.senderVerified ?? null,
     });
+    if (inbound.senderVerified === false) {
+      this.logActivity(
+        "email_in",
+        `Unverified sender: ${inbound.fromAddress} did not pass SPF/DKIM/DMARC checks`,
+        "The From address may be forged. It was not matched to a contact or merged into an existing thread by subject.",
+        thread.id,
+      );
+    }
     // New inbound mail (re)opens the thread until it has been triaged again.
     this.sql`UPDATE threads SET status = 'new', preview = ${previewOf(inbound.text)}, updated_at = ${message.createdAt}
       WHERE id = ${thread.id}`;
@@ -322,21 +361,22 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     );
     this.touch();
 
-    if (opts.process === "background") await this.queue("processThreadTask", { threadId: thread.id });
-    else await this.processThread(thread.id);
+    const limit = opts.limit ?? { limited: false, reason: null };
+    if (opts.process === "background") await this.queue("processThreadTask", { threadId: thread.id, limit });
+    else await this.processThread(thread.id, limit);
     return { threadId: thread.id, messageId: message.id };
   }
 
   /** Queue callback for ingestMessage(..., { process: "background" }). */
-  async processThreadTask(payload: { threadId: string }): Promise<void> {
-    await this.processThread(payload.threadId);
+  async processThreadTask(payload: { threadId: string; limit?: InboundLimit }): Promise<void> {
+    await this.processThread(payload.threadId, payload.limit);
   }
 
   /** Triage -> work order -> reply approval -> dispatch approval. Logs failures instead of throwing. */
-  async processThread(threadId: string): Promise<void> {
+  async processThread(threadId: string, limit: InboundLimit = { limited: false, reason: null }): Promise<void> {
     await this.serialize(`thread:${threadId}`, async () => {
       try {
-        await this.runPipeline(threadId);
+        await this.runPipeline(threadId, limit);
       } catch (err) {
         this.logActivity("error", "Could not finish processing a message", errorText(err), threadId);
       } finally {
@@ -401,6 +441,34 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     this.sql`UPDATE threads SET status = 'closed', updated_at = ${now} WHERE id = ${threadId}`;
     this.logActivity("system", `${actor} closed "${thread.subject}"`, null, threadId);
     this.touch();
+  }
+
+  /** Deletes every simulated thread with its messages, approvals and work orders (demo reset). Real mail is untouched. */
+  async resetSimulated(actor: string): Promise<{ threads: number; approvals: number; tickets: number }> {
+    const ids = this.sql<{ id: string }>`SELECT id FROM threads WHERE simulated = 1`.map((r) => r.id);
+    let approvals = 0;
+    let tickets = 0;
+    this.ctx.storage.transactionSync(() => {
+      for (const id of ids) {
+        approvals += this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM approvals WHERE thread_id = ${id}`[0]?.n ?? 0;
+        const ticketIds = this.sql<{ id: string }>`SELECT id FROM tickets WHERE thread_id = ${id}`.map((r) => r.id);
+        tickets += ticketIds.length;
+        for (const ticketId of ticketIds) {
+          this.sql`UPDATE threads SET ticket_id = NULL WHERE ticket_id = ${ticketId}`;
+          this.sql`DELETE FROM approvals WHERE ticket_id = ${ticketId}`;
+        }
+        this.sql`DELETE FROM approvals WHERE thread_id = ${id}`;
+        this.sql`DELETE FROM messages WHERE thread_id = ${id}`;
+        this.sql`DELETE FROM tickets WHERE thread_id = ${id}`;
+        this.sql`DELETE FROM threads WHERE id = ${id}`;
+      }
+    });
+    this.logActivity(
+      "system",
+      `${actor} cleared simulated messages: ${ids.length} thread${ids.length === 1 ? "" : "s"}, ${approvals} draft${approvals === 1 ? "" : "s"}, ${tickets} work order${tickets === 1 ? "" : "s"}`,
+    );
+    this.touch();
+    return { threads: ids.length, approvals, tickets };
   }
 
   // -------------------------------------------------------------------------
@@ -489,8 +557,12 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     return { meta, text };
   }
 
-  async searchDocs(query: string, limit = 8): Promise<SearchHit[]> {
-    return this.searchIndex(query, limit);
+  /**
+   * Document search. Emailed attachments are untrusted, so they are left out unless `includeEmailed`
+   * is set (only the vault search screen, which labels them); the agents never see them as records.
+   */
+  async searchDocs(query: string, limit = 8, opts: { includeEmailed?: boolean } = {}): Promise<SearchHit[]> {
+    return this.searchIndex(query, limit, { includeEmailed: opts?.includeEmailed === true });
   }
 
   // -------------------------------------------------------------------------
@@ -601,22 +673,37 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
   // Private: pipeline
   // =========================================================================
 
-  private async runPipeline(threadId: string): Promise<void> {
+  private async runPipeline(threadId: string, limit: InboundLimit): Promise<void> {
     const thread = this.findThread(threadId);
     const latest = thread && thread.status !== "closed" ? this.latestInbound(threadId) : null;
     if (!thread || !latest) return;
 
-    const triage = await this.triageThread(thread, latest);
-    const work = this.ensureWorkOrder(thread, triage, latest);
+    const triage = await this.triageThread(thread, latest, limit.limited);
+    // Re-read after the await: staff may have closed the thread or linked a work order meanwhile.
+    const current = this.findThread(threadId);
+    if (!current || current.status === "closed") {
+      this.logActivity("draft", "No drafts made: the thread was closed while it was being triaged", null, threadId);
+      return;
+    }
+    const work = this.ensureWorkOrder(current, triage, latest);
 
-    if (shouldDraftReply(triage)) {
+    if (limit.limited) {
+      this.logActivity("draft", `Draft on request: ${limit.reason}`, "Use Draft reply on the thread to write one.", threadId);
+    } else if (shouldDraftReply(triage)) {
       await this.attempt("draft a reply", threadId, () => this.composeReplyApproval(threadId, null, "agent"));
     } else {
       this.logActivity("draft", replySkipReason(triage), null, threadId);
     }
 
     const contractor = work?.created ? work.contractor : null;
-    if (work && contractor?.email) {
+    if (work?.created && ownerToArrange(triage)) {
+      this.logActivity(
+        "ticket",
+        `${work.ticket.number}: likely the lot owner's responsibility, so no contractor was dispatched`,
+        "Contact the lot owner or their property manager before dispatching the strata company's contractor.",
+        work.ticket.id,
+      );
+    } else if (work && contractor?.email && !limit.limited) {
       const email = contractor.email;
       await this.attempt("draft the contractor work order", threadId, () =>
         this.composeDispatchApproval(threadId, triage, work.ticket, contractor, email),
@@ -626,22 +713,26 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
   }
 
   /** Triages the latest inbound message (its sender may differ from the thread's, e.g. a contractor replying). */
-  private async triageThread(thread: Thread, latest: Message): Promise<Triage> {
+  private async triageThread(thread: Thread, latest: Message, rulesOnly = false): Promise<Triage> {
     const sender = messageSender(latest);
     const label = `Triaging ${channelNoun(latest.channel)} from ${sender.name ?? sender.address}`;
     return this.withBusy(label, async (status) => {
       status("Searching documents …");
       const context = this.searchIndex(`${latest.subject} ${latest.text.slice(0, 600)}`, 6);
       status(label);
-      const triage = await triageMessage(this.env, {
-        property: this.profile(),
-        channel: latest.channel,
-        fromName: sender.name,
-        fromAddress: sender.address,
-        subject: latest.subject,
-        text: latest.text,
-        context,
-      });
+      const triage = await triageMessage(
+        this.env,
+        {
+          property: this.profile(),
+          channel: latest.channel,
+          fromName: sender.name,
+          fromAddress: sender.address,
+          subject: latest.subject,
+          text: latest.text,
+          context,
+        },
+        { rulesOnly },
+      );
       this.sql`UPDATE threads SET triage = ${JSON.stringify(triage)}, priority = ${triage.priority},
         status = CASE WHEN status = 'closed' THEN status ELSE 'triaged' END
         WHERE id = ${thread.id}`;
@@ -650,17 +741,22 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     });
   }
 
-  /** Existing ticket for the thread, or a new one for P1/P2 maintenance and insurance items. */
+  /**
+   * The thread's open work order, or a new one for items that need one (P1/P2 maintenance and insurance,
+   * any P1 needing a trade). A work order already marked done does not absorb a recurrence: a new one is raised.
+   */
   private ensureWorkOrder(thread: Thread, triage: Triage, latest: Message): WorkOrder | null {
     const existing = thread.ticketId ? this.findTicket(thread.ticketId) : null;
-    if (existing) return { ticket: existing, contractor: null, created: false };
-    if (!needsTicket(triage)) return null;
+    if (existing && existing.status !== "done") return { ticket: existing, contractor: null, created: false };
+    if (!needsTicket(triage)) return existing ? { ticket: existing, contractor: null, created: false } : null;
 
-    const contractor = pickContractor(this.contactRows("contractor"), triage.contractorTrade, triage.priority);
+    const contractor = ownerToArrange(triage)
+      ? null
+      : pickContractor(this.contactRows("contractor"), triage.contractorTrade, triage.priority);
     const ticket = this.insertTicket(
       {
-        title: truncate(triage.summary || thread.subject, 140),
-        description: ticketDescription(triage, latest),
+        title: ticketTitle(triage, thread.subject),
+        description: ticketDescription(triage, latest, existing?.number ?? null),
         category: triage.category,
         priority: triage.priority,
         ...ticketAssignee(triage, contractor),
@@ -685,7 +781,16 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
 
     const contacts = this.contactRows();
     const sender = messageSender(latest);
-    const to = replyRecipient(sender, contacts);
+    let to = replyRecipient(sender, contacts);
+    let recipientNote: string | null = null;
+    if (!checkRecipient(to.address, thread.fromAddress, contacts).ok) {
+      // Someone not on record joined the thread (a second address, a CC'd neighbour): reply to the original sender.
+      const original = replyRecipient({ name: thread.fromName, address: thread.fromAddress }, contacts);
+      if (checkRecipient(original.address, thread.fromAddress, contacts).ok) {
+        recipientNote = `The latest message came from ${sender.address}, who is not on record, so the reply is addressed to the original sender.`;
+        to = original;
+      }
+    }
     const ticket = thread.ticketId ? this.findTicket(thread.ticketId) : null;
     const draft = await this.withBusy(`Drafting reply to ${to.name ?? to.address}`, () =>
       composeDraft(this.env, {
@@ -703,11 +808,20 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       }),
     );
 
+    this.assertNotClosedMeanwhile(threadId, thread);
     this.supersedePendingReplies(threadId, actor);
+    const recipient = recipientNote ? { name: to.name, address: to.address } : sender;
+    // A possibly forged From address is never dressed up with a contact's name and lot.
+    const unverified = latest.senderVerified === false && !recipientNote;
+    const who = unverified ? `${recipient.name ?? recipient.address} (unverified sender)` : senderLabel(recipient, contacts);
+    const notes = [
+      unverified ? "The sender's address could not be verified (SPF/DKIM/DMARC), so it may be forged: check before relying on the request." : null,
+      recipientNote,
+    ].filter((n): n is string => n !== null);
     return this.insertApproval({
       kind: "send_email",
-      title: `Reply to ${senderLabel(sender, contacts)}: ${truncate(triage.summary || thread.subject, 80)}`,
-      rationale: draft.rationale,
+      title: `Reply to ${who}: ${truncate(triage.summary || thread.subject, 80)}`,
+      rationale: notes.length ? `${notes.join(" ")} ${draft.rationale}` : draft.rationale,
       draft: {
         to: to.address,
         toName: to.name,
@@ -721,6 +835,8 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       ticketId: ticket?.id ?? null,
       createdBy: actor,
       engine: draft.engine,
+      model: draft.model,
+      provider: draft.provider,
     });
   }
 
@@ -748,6 +864,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
         contractor,
       }),
     );
+    this.assertNotClosedMeanwhile(threadId, thread);
     return this.insertApproval({
       kind: "dispatch_contractor",
       title: `Send ${ticket.number} to ${contractor.name}${contractor.trade ? ` (${contractor.trade})` : ""}`,
@@ -758,7 +875,16 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       ticketId: ticket.id,
       createdBy: "agent",
       engine: draft.engine,
+      model: draft.model,
+      provider: draft.provider,
     });
+  }
+
+  /** Drafting awaits the model; a thread closed (or deleted) during that time must not get new pending approvals. */
+  private assertNotClosedMeanwhile(threadId: string, before: Thread): void {
+    const now = this.findThread(threadId);
+    if (!now) throw new Error("Thread was deleted while drafting");
+    if (now.status === "closed" && before.status !== "closed") throw new Error("Thread was closed while drafting");
   }
 
   /** A new reply draft replaces any older pending one for the same thread. */
@@ -768,17 +894,22 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       WHERE thread_id = ${threadId} AND kind = 'send_email' AND status = 'pending'`;
   }
 
-  /** Status follows the work: pending approvals > last message outbound (replied) > triaged > new. */
+  /**
+   * Status follows the work: pending approvals > a reply to the sender approved since their latest message
+   * (replied; a contractor work order alone does not count) > triaged > new.
+   */
   private refreshThreadStatus(threadId: string): void {
     const thread = this.findThread(threadId);
     if (!thread || thread.status === "closed") return;
     const pending =
       this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM approvals WHERE thread_id = ${threadId} AND status = 'pending'`[0]
         ?.n ?? 0;
-    const last = this.sql<{ direction: string }>`SELECT direction FROM messages WHERE thread_id = ${threadId}
-      ORDER BY created_at DESC, rowid DESC LIMIT 1`[0];
-    const status: ThreadStatus =
-      pending > 0 ? "awaiting_approval" : last?.direction === "outbound" ? "replied" : thread.triage ? "triaged" : "new";
+    const replied =
+      this.sql<{ one: number }>`SELECT 1 AS one FROM approvals
+        WHERE thread_id = ${threadId} AND kind = 'send_email' AND status = 'approved'
+          AND decided_at >= COALESCE((SELECT MAX(created_at) FROM messages WHERE thread_id = ${threadId} AND direction = 'inbound'), '')
+        LIMIT 1`.length > 0;
+    const status: ThreadStatus = pending > 0 ? "awaiting_approval" : replied ? "replied" : thread.triage ? "triaged" : "new";
     if (status !== thread.status) this.sql`UPDATE threads SET status = ${status} WHERE id = ${threadId}`;
   }
 
@@ -798,11 +929,16 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     const id = crypto.randomUUID();
     const createdAt = nowIso();
     this.sql`INSERT INTO approvals (id, kind, title, rationale, draft, citations, thread_id, ticket_id, status,
-        created_by, created_at, engine)
+        created_by, created_at, engine, engine_model, engine_provider)
       VALUES (${id}, ${input.kind}, ${input.title}, ${input.rationale}, ${JSON.stringify(input.draft)},
         ${JSON.stringify(input.citations ?? [])}, ${input.threadId}, ${input.ticketId}, 'pending',
-        ${input.createdBy}, ${createdAt}, ${input.engine})`;
-    this.logActivity("approval", `Waiting for approval: ${input.title}`, `Drafted by ${input.createdBy} (${input.engine})`, id);
+        ${input.createdBy}, ${createdAt}, ${input.engine}, ${input.model}, ${input.provider ?? null})`;
+    this.logActivity(
+      "approval",
+      `Waiting for approval: ${input.title}`,
+      `Drafted by ${input.createdBy} (${engineLabel(input.engine, input.model, input.provider)})`,
+      id,
+    );
     return this.requireApproval(id);
   }
 
@@ -813,7 +949,10 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       decided_by = ${actor} WHERE id = ${approval.id}`;
 
     const thread = approval.threadId ? this.findThread(approval.threadId) : null;
-    const check = checkRecipient(draft.to, thread?.fromAddress ?? null, this.contactRows());
+    // A simulated thread's sender was typed into the hub, so it only counts as "the original sender" on a
+    // reserved test domain; any real address on a simulated thread must be a stored contact.
+    const originalSender = thread && (!thread.simulated || isReservedTestAddress(thread.fromAddress)) ? thread.fromAddress : null;
+    const check = checkRecipient(draft.to, originalSender, this.contactRows());
     if (!check.ok) return this.failApproval(approval, actor, `Blocked: ${check.reason}`);
 
     const profile = this.profile();
@@ -843,7 +982,8 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     note: string | undefined,
   ): void {
     const messageId = normaliseMessageId(sentMessageId);
-    this.sql`UPDATE approvals SET result = ${`Sent (messageId ${messageId ?? sentMessageId})`} WHERE id = ${approval.id}`;
+    const sentAt = perthShort(new Date());
+    this.sql`UPDATE approvals SET result = ${`Sent to ${formatAddress(draft.toName, draft.to)} on ${sentAt}`} WHERE id = ${approval.id}`;
     if (approval.threadId) {
       const message = this.insertMessage({
         threadId: approval.threadId,
@@ -864,7 +1004,12 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     if (approval.kind === "dispatch_contractor" && approval.ticketId) this.markDispatched(approval.ticketId, draft, actor);
     if (approval.threadId) this.refreshThreadStatus(approval.threadId);
     this.logActivity("approval", `${actor} approved: ${approval.title}`, optionalText(note), approval.id);
-    this.logActivity("email_out", `Email sent to ${draft.toName ?? draft.to}: ${draft.subject}`, null, approval.threadId ?? approval.id);
+    this.logActivity(
+      "email_out",
+      `Email sent to ${draft.toName ?? draft.to}: ${draft.subject}`,
+      `Message-ID ${messageId ?? sentMessageId}`,
+      approval.threadId ?? approval.id,
+    );
   }
 
   private markDispatched(ticketId: string, draft: EmailDraft, actor: string): void {
@@ -899,7 +1044,10 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
   // Private: threads and messages
   // =========================================================================
 
-  /** In-Reply-To/References match first, then same sender + same subject within 14 days. */
+  /**
+   * In-Reply-To/References match first, then same sender + same subject within 14 days. An unverified
+   * (possibly forged) sender only joins a thread through a reply to one of its messages.
+   */
   private findThreadFor(inbound: InboundInput): Thread | null {
     const ids = parseMessageIds(inbound.inReplyTo, inbound.references);
     if (ids.length) {
@@ -911,10 +1059,12 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       const thread = hit ? this.findThread(hit.thread_id) : null;
       if (thread) return thread;
     }
+    if (inbound.senderVerified === false) return null;
     const since = new Date(Date.now() - THREAD_WINDOW_MS).toISOString();
+    // Simulated messages never join real threads, and real mail never joins a simulated one.
     const row = this.sql<ThreadRow>`SELECT * FROM threads
       WHERE sender_key = ${senderKey(inbound.fromAddress)} AND subject_key = ${subjectKey(inbound.subject)}
-        AND updated_at >= ${since}
+        AND updated_at >= ${since} AND simulated = ${inbound.simulated ? 1 : 0}
       ORDER BY updated_at DESC LIMIT 1`[0];
     return row ? toThread(row) : null;
   }
@@ -942,12 +1092,14 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       id: crypto.randomUUID(),
       createdAt: nowIso(),
       messageId: normaliseMessageId(m.messageId),
+      senderVerified: m.senderVerified ?? null,
     };
+    const verified = message.senderVerified === null || message.senderVerified === undefined ? null : message.senderVerified ? 1 : 0;
     this.sql`INSERT INTO messages (id, thread_id, direction, channel, from_addr, to_addr, subject, body, message_id,
-        in_reply_to, refs, attachments, author, created_at)
+        in_reply_to, refs, attachments, author, created_at, sender_verified)
       VALUES (${message.id}, ${message.threadId}, ${message.direction}, ${message.channel}, ${message.from},
         ${message.to}, ${message.subject}, ${message.text}, ${message.messageId}, ${message.inReplyTo},
-        ${message.references}, ${JSON.stringify(message.attachments)}, ${message.author}, ${message.createdAt})`;
+        ${message.references}, ${JSON.stringify(message.attachments)}, ${message.author}, ${message.createdAt}, ${verified})`;
     return message;
   }
 
@@ -1005,8 +1157,10 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     return ticket;
   }
 
+  /** Links the thread unless it already has an open work order (a done or deleted one is replaced). */
   private linkThreadToTicket(threadId: string, ticketId: string): void {
-    this.sql`UPDATE threads SET ticket_id = ${ticketId} WHERE id = ${threadId} AND ticket_id IS NULL`;
+    this.sql`UPDATE threads SET ticket_id = ${ticketId} WHERE id = ${threadId}
+      AND (ticket_id IS NULL OR ticket_id NOT IN (SELECT id FROM tickets WHERE status != 'done'))`;
   }
 
   // =========================================================================
@@ -1054,26 +1208,34 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     this.sql`DELETE FROM docs WHERE id = ${docId}`;
   }
 
-  /** BM25 search over chunk text (weight 1), document name (5) and folder (2). Never throws. */
-  private searchIndex(query: string, limit: number): SearchHit[] {
+  /**
+   * BM25 search over chunk text (weight 1), document name (5) and folder (2). Never throws.
+   * Emailed attachments (uploaded_by "email:…") are excluded unless `includeEmailed`: anyone can email the
+   * building, so their text must never reach triage, drafts or chat as a building record.
+   * The snippet always comes from the chunk body (a name-only match falls back to the start of the body).
+   */
+  private searchIndex(query: string, limit: number, opts: SearchOptions = {}): SearchHit[] {
     const match = typeof query === "string" ? ftsQuery(query) : null;
     if (!match) return [];
     const max = clamp(Math.floor(Number(limit)) || 8, 1, 25);
+    const perDoc = clamp(Math.floor(Number(opts.perDoc)) || 2, 1, 10);
     try {
       const rows = this.rows<SearchRow>(
         `SELECT c.doc_id AS doc_id, c.chunk_index AS chunk_index, d.name AS doc_name, d.folder AS folder,
-            c.body AS body, snippet(doc_fts, -1, '', '', ' … ', 40) AS snippet,
+            d.uploaded_by AS uploaded_by, c.body AS body, snippet(doc_fts, 0, '', '', ' … ', 40) AS snippet,
             bm25(doc_fts, 1.0, 5.0, 2.0) AS rank
           FROM doc_fts
           JOIN doc_chunks c ON c.id = doc_fts.rowid
           JOIN docs d ON d.id = c.doc_id
-          WHERE doc_fts MATCH ?
+          WHERE doc_fts MATCH ? AND (? = 1 OR d.uploaded_by NOT LIKE ?)
           ORDER BY rank
           LIMIT ?`,
         match,
-        max * 4,
+        opts.includeEmailed ? 1 : 0,
+        `${EMAILED_UPLOAD_PREFIX}%`,
+        max * 2 * perDoc,
       );
-      return capPerDoc(rows, 2)
+      return capPerDoc(rows, perDoc)
         .slice(0, max)
         .map((r) => ({
           docId: r.doc_id,
@@ -1083,6 +1245,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
           snippet: r.snippet?.trim() || previewOf(r.body, 240) || `${r.folder} / ${r.doc_name}`,
           // bm25() is lower-is-better; expose higher-is-better.
           score: -r.rank,
+          uploadedBy: r.uploaded_by,
         }));
     } catch (err) {
       console.warn(`[${this.name}] document search failed for ${JSON.stringify(query)}: ${errorText(err)}`);
@@ -1090,29 +1253,44 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     }
   }
 
-  private async fileAttachments(files: InboundAttachment[], sender: string): Promise<FiledAttachment[]> {
+  /**
+   * Files an email's attachments. With a Message-ID the doc ids are derived from it, so a retried delivery
+   * whose first attempt failed part-way replaces those documents instead of adding copies.
+   */
+  private async fileAttachments(files: InboundAttachment[], sender: string, messageId: string | null): Promise<FiledAttachment[]> {
     const filed: FiledAttachment[] = [];
     for (const [index, file] of files.entries()) {
       const name = optionalText(file.name, 200) ?? `attachment-${index + 1}`;
-      const docId = index < MAX_ATTACHMENTS ? await this.fileAttachment(file, name, sender) : null;
-      filed.push({ name, docId });
+      const docId = messageId ? `att-${(await sha256Hex(`${messageId}:${index}`)).slice(0, 32)}` : null;
+      const filedId = index < MAX_ATTACHMENTS ? await this.fileAttachment(file, name, sender, docId) : null;
+      filed.push({ name, docId: filedId });
     }
     return filed;
   }
 
-  /** Stores one email attachment in R2 under 07 Correspondence and indexes its text. */
-  private async fileAttachment(file: InboundAttachment, name: string, sender: string): Promise<string | null> {
+  /** Attachments of a sender over the daily limit are listed on the message but not stored or indexed. */
+  private skipAttachments(files: InboundAttachment[], sender: string, reason: string | null): FiledAttachment[] {
+    if (files.length > 0) {
+      this.logActivity("doc", `Did not file ${files.length} attachment${files.length === 1 ? "" : "s"} from ${sender}`, reason);
+    }
+    return files.map((file, index) => ({ name: optionalText(file.name, 200) ?? `attachment-${index + 1}`, docId: null }));
+  }
+
+  /** Stores one email attachment in R2 under 07 Correspondence and indexes its text (as an untrusted emailed file). */
+  private async fileAttachment(file: InboundAttachment, name: string, sender: string, docId: string | null): Promise<string | null> {
     if (file.content.byteLength > MAX_ATTACHMENT_BYTES) {
       this.logActivity("doc", `Skipped attachment "${name}" from ${sender}: larger than 25 MB`);
       return null;
     }
     try {
       const mimeType = guessMime(name, file.mimeType);
-      const r2Key = r2KeyFor(this.name, CORRESPONDENCE_FOLDER, name);
+      const existing = docId ? this.findDoc(docId) : null;
+      const r2Key = existing?.r2Key ?? r2KeyFor(this.name, CORRESPONDENCE_FOLDER, name);
       await this.env.VAULT.put(r2Key, file.content, { httpMetadata: { contentType: mimeType } });
       const extracted = await extractText(file.content, mimeType, name);
       const doc = this.indexDocument(
         {
+          ...(docId ? { id: docId } : {}),
           folder: CORRESPONDENCE_FOLDER,
           name,
           mimeType,
@@ -1120,7 +1298,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
           r2Key,
           scope: "building",
           sample: false,
-          uploadedBy: `email:${sender}`,
+          uploadedBy: `${EMAILED_UPLOAD_PREFIX}${sender}`,
         },
         extracted.text,
         extracted.error != null,
@@ -1131,6 +1309,33 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       this.logActivity("error", `Could not file attachment "${name}" from ${sender}`, errorText(err));
       return null;
     }
+  }
+
+  // =========================================================================
+  // Private: daily inbound limits (cost and approval-queue flooding)
+  // =========================================================================
+
+  /** Counts one inbound email from `sender` for today (Perth) and returns whether it is over a daily limit. */
+  private countInbound(sender: string): InboundLimit {
+    const day = perthDate();
+    const key = senderKey(sender);
+    this.sql`INSERT INTO inbound_counts (day, sender_key, n) VALUES (${day}, ${key}, 1)
+      ON CONFLICT(day, sender_key) DO UPDATE SET n = n + 1`;
+    this.sql`DELETE FROM inbound_counts WHERE day < ${perthDate(new Date(Date.now() - 7 * DAY_MS))}`;
+    return this.inboundLimit(sender);
+  }
+
+  private inboundLimit(sender: string): InboundLimit {
+    const day = perthDate();
+    const own = this.sql<{ n: number }>`SELECT n FROM inbound_counts WHERE day = ${day} AND sender_key = ${senderKey(sender)}`[0]?.n ?? 0;
+    const all = this.sql<{ n: number | null }>`SELECT SUM(n) AS n FROM inbound_counts WHERE day = ${day}`[0]?.n ?? 0;
+    if (own > DAILY_SENDER_LIMIT) {
+      return { limited: true, reason: `${sender} has sent ${own} emails today (limit ${DAILY_SENDER_LIMIT} for automatic drafts)` };
+    }
+    if (all > DAILY_BUILDING_LIMIT) {
+      return { limited: true, reason: `this building has received ${all} emails today (limit ${DAILY_BUILDING_LIMIT} for automatic drafts)` };
+    }
+    return { limited: false, reason: null };
   }
 
   // =========================================================================
@@ -1218,13 +1423,16 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     this.logActivity("chat", `${actor} asked: ${truncate(text, 120)}`);
     this.touch();
 
-    const reply = aiOnline(this.env) ? await this.answerWithClaude(text, actor) : this.offlineReply(text, OFFLINE_REASON);
+    if (!aiOnline(this.env)) this.logActivity("chat", "Answered with a document search (AI offline)", offlineReason(this.env));
+    const reply = aiOnline(this.env) ? await this.answerWithAi(text, actor) : this.offlineReply(text, OFFLINE_NOTICE);
     const answer = this.insertChat({ role: "assistant", author: null, ...reply });
     this.touch();
     return answer;
   }
 
-  private async answerWithClaude(text: string, actor: string): Promise<ChatReply> {
+  /** Claude tool loop, or the Workers AI one-pass answer (runAgent picks by provider). */
+  private async answerWithAi(text: string, actor: string): Promise<ChatReply> {
+    const provider = aiProvider(this.env);
     const history = this.loadHistory();
     const system = await this.chatSystemPrompt(history.length === 0);
     try {
@@ -1243,21 +1451,35 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
         }),
       );
       this.saveHistory(historyUpdate(history, result.history));
+      this.logActivity("chat", `Answered by ${provider.label}${provider.kind === "workers-ai" ? " (light mode, no tools)" : ""}`);
       return {
         text: result.text,
         toolCalls: result.toolCalls.map(({ name, summary }) => ({ name, summary })),
         citations: result.citations,
       };
     } catch (err) {
-      this.logActivity("error", "Claude request failed during chat", errorText(err));
+      this.logActivity("error", `${provider.label}: request failed during chat`, errorText(err));
+      if (err instanceof AgentRunError) {
+        // Keep what happened before the failure: the stored history and any side effects already made.
+        this.saveHistory(historyUpdate(history, err.partial.history));
+        const done = err.partial.toolCalls.filter((t) => t.name === "create_ticket" || t.name === "remember" || t.name === "draft_reply");
+        if (done.length > 0) {
+          return {
+            text: `The AI request failed part-way (${errorText(err)}). Before it failed I: ${done.map((t) => t.summary).join("; ")}. Check these before asking again.`,
+            toolCalls: err.partial.toolCalls.map(({ name, summary }) => ({ name, summary })),
+            citations: err.partial.citations,
+          };
+        }
+      }
       return this.offlineReply(text, `The AI request failed (${errorText(err)}), so this is a plain document search instead.`);
     }
   }
 
   private offlineReply(text: string, reason: string): ChatReply {
-    const hits = this.searchIndex(text, 5);
+    const hits = this.searchIndex(text, 5, { perDoc: 3 });
+    const contacts = contractorLines(text, this.contactRows("contractor"));
     return {
-      ...offlineAnswer(reason, hits),
+      ...offlineAnswer(reason, hits, contacts),
       toolCalls: [{ name: "search_documents", summary: `${hits.length} result(s) for "${truncate(text, 60)}"` }],
     };
   }
@@ -1289,7 +1511,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
           this.sql`INSERT INTO llm_history (message, created_at) VALUES (${JSON.stringify(entry)}, ${now})`;
         }
       });
-      if (update.replace) this.logActivity("chat", "Conversation memory restarted: Claude rejected the stored history");
+      if (update.replace) this.logActivity("chat", "Conversation memory restarted: the model rejected the stored history");
     } catch (err) {
       this.logActivity("error", "Could not save this chat turn to the agent's conversation memory", errorText(err));
     }
@@ -1307,6 +1529,14 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
   // Private: live state, busy indicator, activity
   // =========================================================================
 
+  /** Adds columns introduced after a building's database was created (CREATE TABLE IF NOT EXISTS skips them). */
+  private addMissingColumns(): void {
+    for (const [table, column, type] of ADDED_COLUMNS) {
+      const columns = this.ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray();
+      if (!columns.some((c) => c.name === column)) this.ctx.storage.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    }
+  }
+
   /** Recomputes counts and recent activity, bumps `version` and broadcasts. Call after every mutation. */
   private touch(): void {
     this.syncState(true);
@@ -1318,6 +1548,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       profile: this.storedProfile(),
       counts: this.computeCounts(),
       aiOnline: aiOnline(this.env),
+      ai: aiInfo(this.env),
       busy: this.busyState(),
       recentActivity: this.recentActivity(RECENT_ACTIVITY),
       version: (current?.version ?? 0) + (bumpVersion ? 1 : 0),
@@ -1424,7 +1655,10 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
   }
 
   private selectApprovals(tail: string, ...bindings: SqlValue[]): Approval[] {
-    return this.rows<ApprovalRow>(`SELECT * FROM approvals ${tail}`, ...bindings).map((r) => toApproval(r, this.name));
+    return this.rows<ApprovalRow>(
+      `SELECT *, (SELECT simulated FROM threads WHERE threads.id = approvals.thread_id) AS thread_simulated FROM approvals ${tail}`,
+      ...bindings,
+    ).map((r) => toApproval(r, this.name));
   }
 
   private selectTickets(tail: string, ...bindings: SqlValue[]): Ticket[] {

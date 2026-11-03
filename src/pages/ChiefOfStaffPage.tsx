@@ -42,6 +42,7 @@ export function ChiefOfStaffPage() {
           reset={api.resetCosChat}
           suggestions={SUGGESTIONS}
           aiOnline={session.aiOnline}
+          offlineHint="AI offline: answers are rules-based summaries of the building agents' records."
           refreshKey={brief.refreshKey}
           className="h-[min(760px,calc(100dvh-200px))] min-h-[540px]"
         />

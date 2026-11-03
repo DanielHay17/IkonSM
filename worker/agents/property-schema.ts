@@ -29,6 +29,13 @@ import type {
   Triage,
 } from "../../shared/types";
 
+/** Columns added after the first release: [table, column, type]. Applied by addMissingColumns() after SCHEMA. */
+export const ADDED_COLUMNS: readonly (readonly [table: string, column: string, type: string])[] = [
+  ["approvals", "engine_model", "TEXT"],
+  ["approvals", "engine_provider", "TEXT"],
+  ["messages", "sender_verified", "INTEGER"],
+];
+
 /** Idempotent DDL, run in order on every wake (onStart). */
 export const SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS meta (
@@ -70,7 +77,8 @@ export const SCHEMA: readonly string[] = [
     refs TEXT,
     attachments TEXT NOT NULL DEFAULT '[]',
     author TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    sender_verified INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages (thread_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_messages_message_id ON messages (message_id)`,
@@ -108,7 +116,9 @@ export const SCHEMA: readonly string[] = [
     decided_at TEXT,
     decided_by TEXT,
     result TEXT,
-    engine TEXT NOT NULL
+    engine TEXT NOT NULL,
+    engine_model TEXT,
+    engine_provider TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals (status, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_approvals_thread ON approvals (thread_id)`,
@@ -181,6 +191,14 @@ export const SCHEMA: readonly string[] = [
     created_at TEXT NOT NULL
   )`,
 
+  // Inbound email per sender per Perth day, for the daily AI and attachment limits.
+  `CREATE TABLE IF NOT EXISTS inbound_counts (
+    day TEXT NOT NULL,
+    sender_key TEXT NOT NULL,
+    n INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, sender_key)
+  )`,
+
   // Anthropic MessageParam JSON, append-only; seq preserves order.
   `CREATE TABLE IF NOT EXISTS llm_history (
     seq INTEGER PRIMARY KEY,
@@ -226,6 +244,7 @@ export type MessageRow = {
   attachments: string;
   author: string | null;
   created_at: string;
+  sender_verified: number | null;
 };
 
 export type TicketRow = {
@@ -262,6 +281,10 @@ export type ApprovalRow = {
   decided_by: string | null;
   result: string | null;
   engine: string;
+  engine_model: string | null;
+  engine_provider: string | null;
+  /** threads.simulated of the approval's thread (selected by a subquery; null without a thread). */
+  thread_simulated?: number | null;
 };
 
 /** docs row without the (potentially large) body column. */
@@ -292,6 +315,7 @@ export type SearchRow = {
   body: string;
   snippet: string | null;
   rank: number;
+  uploaded_by: string;
 };
 
 export type ContactRow = {
@@ -386,6 +410,7 @@ export function toMessage(r: MessageRow): Message {
     attachments: parseJson<Message["attachments"]>(r.attachments, []),
     createdAt: r.created_at,
     author: r.author,
+    senderVerified: r.sender_verified === null || r.sender_verified === undefined ? null : r.sender_verified === 1,
   };
 }
 
@@ -433,6 +458,9 @@ export function toApproval(r: ApprovalRow, propertyId: string): Approval {
     decidedBy: r.decided_by,
     result: r.result,
     engine: r.engine as Approval["engine"],
+    model: r.engine_model ?? null,
+    provider: (r.engine_provider as Approval["provider"]) ?? null,
+    simulated: r.thread_simulated === 1,
   };
 }
 

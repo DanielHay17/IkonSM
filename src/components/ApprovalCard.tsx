@@ -10,6 +10,7 @@ import { Card } from "./Card";
 import { inputClasses, textareaClasses } from "./Field";
 import { Icon } from "./Icon";
 import { Link } from "./Link";
+import { ConfirmDialog } from "./Modal";
 import { ApprovalStatusBadge, DraftEngineBadge } from "./StatusBadges";
 import { useToast } from "./Toast";
 
@@ -25,6 +26,17 @@ const KIND_LABEL: Record<Approval["kind"], string> = {
   send_email: "Reply",
   dispatch_contractor: "Contractor dispatch",
 };
+
+/** A pending reply replaced by a newer draft is recorded as "rejected" with this result. */
+function isSuperseded(approval: Approval): boolean {
+  return approval.status === "rejected" && approval.decidedBy === "agent" && /^Superseded/.test(approval.result ?? "");
+}
+
+/** Textarea height that shows the whole draft: wrapped lines at about 90 characters, 8 to 40 rows. */
+function draftRows(body: string): number {
+  const lines = body.split("\n").reduce((n, line) => n + Math.max(1, Math.ceil(line.length / 90)), 0);
+  return Math.min(40, Math.max(8, lines + 1));
+}
 
 export function CitationList({ citations, propertyId }: { citations: Citation[]; propertyId?: string }) {
   if (citations.length === 0) return null;
@@ -60,6 +72,7 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
   const [subject, setSubject] = useState(approval.draft.subject);
   const [body, setBody] = useState(approval.draft.body);
   const [busy, setBusy] = useState<ApprovalDecision["decision"] | null>(null);
+  const [confirmReject, setConfirmReject] = useState(false);
 
   // A fresh draft for the same card (re-draft) replaces local edits.
   useEffect(() => {
@@ -68,6 +81,7 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
   }, [approval.id, approval.draft.subject, approval.draft.body]);
 
   const pending = approval.status === "pending";
+  const superseded = isSuperseded(approval);
   const edited = subject !== approval.draft.subject || body !== approval.draft.body;
   const recipient = approval.draft.toName ? `${approval.draft.toName} <${approval.draft.to}>` : approval.draft.to;
 
@@ -113,8 +127,18 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
             <Badge tone={approval.kind === "dispatch_contractor" ? "violet" : "sky"} icon={approval.kind === "dispatch_contractor" ? "wrench" : "mail"}>
               {KIND_LABEL[approval.kind]}
             </Badge>
-            <DraftEngineBadge engine={approval.engine} />
-            {!pending ? <ApprovalStatusBadge status={approval.status} /> : null}
+            <DraftEngineBadge approval={approval} />
+            {pending && /\bSAMPLE\b/.test(approval.rationale) ? (
+              <Badge tone="amber" icon="alert" title="The draft relies on SAMPLE documents or contacts: check every fact before sending">
+                Uses SAMPLE records
+              </Badge>
+            ) : null}
+            {approval.simulated ? (
+              <Badge tone="amber" icon="alert" title="This came from the Simulate panel, but approving still sends a real email">
+                Simulated message
+              </Badge>
+            ) : null}
+            {superseded ? <Badge tone="neutral">Replaced</Badge> : !pending ? <ApprovalStatusBadge status={approval.status} /> : null}
             <span className="text-xs text-muted" title={formatDateTime(approval.createdAt)}>
               {approval.createdBy === "agent" ? "Agent" : approval.createdBy} · {timeAgo(approval.createdAt)}
             </span>
@@ -137,7 +161,7 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
         <div className="rounded-lg border border-line">
           <div className="flex items-center gap-2 border-b border-line bg-subtle px-3 py-2 text-[13px]">
             <span className="w-14 shrink-0 text-muted">To</span>
-            <span className="min-w-0 truncate font-medium text-ink">{recipient}</span>
+            <span className="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">{recipient}</span>
           </div>
           {pending ? (
             <div className="space-y-3 p-3">
@@ -155,8 +179,8 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
                   id={bodyId}
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
-                  rows={Math.min(18, Math.max(8, body.split("\n").length + 1))}
-                  className={textareaClasses("text-[13px]!")}
+                  rows={draftRows(body)}
+                  className={textareaClasses("max-h-[70vh] text-[13px]!")}
                 />
               </div>
             </div>
@@ -175,7 +199,11 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
 
         <CitationList citations={approval.citations} propertyId={approval.propertyId} />
 
-        {!pending && (approval.decidedBy || approval.result) ? (
+        {superseded ? (
+          <div className="rounded-lg bg-subtle px-3 py-2 text-[13px] text-ink-soft">
+            Replaced by a newer draft{approval.decidedAt ? ` · ${formatDateTime(approval.decidedAt)}` : ""}
+          </div>
+        ) : !pending && (approval.decidedBy || approval.result) ? (
           <div
             className={cx(
               "rounded-lg px-3 py-2 text-[13px]",
@@ -215,7 +243,7 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
             )}
           </p>
           <div className="flex gap-2">
-            <Button variant="secondary" icon="close" loading={busy === "reject"} disabled={busy !== null} onClick={() => decide("reject")}>
+            <Button variant="secondary" icon="close" loading={busy === "reject"} disabled={busy !== null} onClick={() => setConfirmReject(true)}>
               Reject
             </Button>
             <Button
@@ -230,6 +258,14 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
           </div>
         </div>
       ) : null}
+      <ConfirmDialog
+        open={confirmReject}
+        onClose={() => setConfirmReject(false)}
+        onConfirm={() => decide("reject")}
+        title="Reject this draft?"
+        description="Nothing will be sent. You can draft a new reply from the thread later."
+        confirmLabel="Reject draft"
+      />
     </Card>
   );
 }

@@ -22,6 +22,40 @@ export interface ParsedInbound {
   isAutoReply: boolean;
 }
 
+/** The domain of an address ("Jane <jane@Mail.Example.com>" → "mail.example.com"), or "". */
+function domainOf(address: string): string {
+  const bare = address.trim().toLowerCase().replace(/^.*<([^<>]+)>.*$/, "$1").replace(/^<|>$/g, "");
+  return bare.includes("@") ? (bare.split("@").pop() ?? "") : "";
+}
+
+/** Relaxed DMARC-style alignment: the same domain, or one a subdomain of the other. */
+function aligned(a: string, b: string): boolean {
+  return !!a && !!b && (a === b || a.endsWith(`.${b}`) || b.endsWith(`.${a}`));
+}
+
+/**
+ * Whether the From address is backed by the receiving server's checks. Cloudflare Email Routing adds
+ * Authentication-Results (and ARC-Authentication-Results): DMARC pass, DKIM pass for the From domain, or SPF
+ * pass for an aligned envelope sender verifies it. Without those headers the From domain must at least
+ * match the envelope sender's (MAIL FROM) domain. The From header alone is trivially forged.
+ */
+function senderVerified(email: Email, fromAddress: string, envelopeFrom: string): boolean {
+  const fromDomain = domainOf(fromAddress);
+  const envelopeDomain = domainOf(envelopeFrom);
+  const results = email.headers
+    .filter((h) => h.key === "authentication-results" || h.key === "arc-authentication-results")
+    .map((h) => h.value.toLowerCase());
+  if (results.length === 0) return aligned(fromDomain, envelopeDomain);
+  for (const result of results) {
+    if (/\bdmarc=pass\b/.test(result)) return true;
+    for (const dkim of result.matchAll(/\bdkim=pass\b[^;]*?\bheader\.[di]=@?([a-z0-9.-]+)/g)) {
+      if (aligned(dkim[1] ?? "", fromDomain)) return true;
+    }
+    if (/\bspf=pass\b/.test(result) && aligned(envelopeDomain, fromDomain)) return true;
+  }
+  return false;
+}
+
 /**
  * Parses a raw email. `envelope` is the SMTP envelope (MAIL FROM / RCPT TO) and is used as the
  * sender when the From header is missing or unusable. Throws only if the MIME cannot be parsed.
@@ -44,6 +78,7 @@ export async function parseInbound(
     inReplyTo: headerValue(email.inReplyTo),
     references: headerValue(email.references),
     attachments: attachments.map((a) => ({ name: a.name, docId: null })),
+    senderVerified: senderVerified(email, sender.address, envelope.from),
   };
   return { input, attachments, isAutoReply: isAutomated(email, envelope.from) };
 }

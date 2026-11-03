@@ -2,9 +2,11 @@
 //
 // Demo/pilot login is a shared passcode (HUB_PASSCODE) plus the staff member's name; the
 // session is a cookie `ikon_session` = base64url(JSON {n, exp}) + "." + base64url(HMAC-SHA256),
-// keyed with SESSION_SECRET (or HUB_PASSCODE when no separate secret is set), valid for 12 hours.
-// With AUTH_REQUIRED = "false" every request is the staff member "Demo". In production put the
-// hub behind Cloudflare Access as well.
+// keyed with SESSION_SECRET (or HUB_PASSCODE on localhost only), valid for 12 hours.
+// Off localhost, login needs SESSION_SECRET and a passcode of at least 12 characters, and is limited
+// to 10 attempts a minute per client IP (LOGIN_LIMITER). Sessions are stateless: rotate SESSION_SECRET
+// to sign everyone out. With AUTH_REQUIRED = "false" every request is the staff member "Demo".
+// For the pilot, put the hub behind Cloudflare Access as well.
 
 import { Hono, type MiddlewareHandler } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
@@ -12,7 +14,7 @@ import { HTTPException } from "hono/http-exception";
 import { parse as parseCookies, type CookieOptions } from "hono/utils/cookie";
 import { z } from "zod";
 import type { SessionInfo } from "../shared/types";
-import { aiOnline } from "./ai/client";
+import { aiInfo, aiOnline } from "./ai/client";
 import { readJson, type AppEnv } from "./http";
 
 export const SESSION_COOKIE = "ikon_session";
@@ -21,6 +23,10 @@ export const DEMO_STAFF_NAME = "Demo";
 
 const MAX_TOKEN_CHARS = 1024;
 const MAX_STAFF_NAME_CHARS = 60;
+/** Shortest passcode accepted when the hub is reachable from outside localhost. */
+export const MIN_PASSCODE_CHARS = 12;
+/** Tokens may not claim to live longer than this (clock skew allowance included). */
+const MAX_TOKEN_LIFETIME_SECONDS = SESSION_TTL_SECONDS + 300;
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 const encoder = new TextEncoder();
@@ -49,6 +55,7 @@ export function sessionInfo(env: Env, staffName: string | null): SessionInfo {
     staffName,
     authRequired: authRequired(env),
     aiOnline: aiOnline(env),
+    ai: aiInfo(env),
     appName: env.APP_NAME || "Ikon Command Hub",
     companyName: env.COMPANY_NAME || "Ikon Strata Management",
     emailDomain: env.EMAIL_DOMAIN || "ikon.example.com",
@@ -166,6 +173,8 @@ export async function verifySessionToken(env: Env, token: string | undefined, no
 
   const payload = decodePayload(body);
   if (!payload || payload.exp * 1000 <= nowMs) return null;
+  // Only this server signs tokens, so one that claims to outlive a session was not made by login.
+  if (payload.exp * 1000 > nowMs + MAX_TOKEN_LIFETIME_SECONDS * 1000) return null;
   return payload.n;
 }
 
@@ -203,11 +212,32 @@ export const requireStaff: MiddlewareHandler<AppEnv> = async (c, next) => {
   await next();
 };
 
+function isLocalHost(url: URL): boolean {
+  return LOCAL_HOSTNAMES.has(url.hostname) || url.hostname.endsWith(".localhost");
+}
+
 /** Session cookies are Secure everywhere except plain-http localhost (local dev). */
 function cookieOptions(requestUrl: string, maxAge: number): CookieOptions {
   const url = new URL(requestUrl);
-  const localHttp = url.protocol === "http:" && (LOCAL_HOSTNAMES.has(url.hostname) || url.hostname.endsWith(".localhost"));
+  const localHttp = url.protocol === "http:" && isLocalHost(url);
   return { path: "/", httpOnly: true, sameSite: "Lax", secure: !localHttp, maxAge };
+}
+
+/** Why passcode login must stay off on a reachable host, or null when the setup is safe enough. */
+function unsafeLoginSetup(env: Env, requestUrl: string): string | null {
+  if (isLocalHost(new URL(requestUrl))) return null;
+  if (!configured(env.SESSION_SECRET)) return "Set SESSION_SECRET (a long random string) before staff can sign in";
+  if ((configured(env.HUB_PASSCODE) ?? "").length < MIN_PASSCODE_CHARS) {
+    return `HUB_PASSCODE must be at least ${MIN_PASSCODE_CHARS} characters before staff can sign in`;
+  }
+  return null;
+}
+
+/** 10 attempts a minute per client IP (Workers rate limiting binding). Requests without CF-Connecting-IP skip it. */
+async function checkLoginRate(env: Env, ip: string | undefined): Promise<void> {
+  if (!ip || !env.LOGIN_LIMITER) return;
+  const { success } = await env.LOGIN_LIMITER.limit({ key: `login:${ip}` });
+  if (!success) throw new HTTPException(429, { message: "Too many sign-in attempts. Wait a minute and try again." });
 }
 
 /** GET /session, POST /login, POST /logout (mounted under /api; logout is behind requireStaff). */
@@ -220,6 +250,9 @@ authRoutes.post("/login", async (c) => {
   if (!configured(c.env.HUB_PASSCODE) || !sessionSecret(c.env)) {
     throw new HTTPException(503, { message: "Passcode login is not set up on this server (HUB_PASSCODE is empty)" });
   }
+  const unsafe = unsafeLoginSetup(c.env, c.req.url);
+  if (unsafe) throw new HTTPException(503, { message: unsafe });
+  await checkLoginRate(c.env, c.req.header("CF-Connecting-IP"));
 
   const { passcode, name } = await readJson(c, loginSchema);
   if (!(await passcodeMatches(c.env, passcode))) {

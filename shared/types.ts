@@ -22,6 +22,25 @@ export interface PropertyProfile {
 }
 
 // ---------------------------------------------------------------------------
+// AI provider (which LLM, if any, produced a result)
+// ---------------------------------------------------------------------------
+
+/**
+ * anthropic = Claude with an Anthropic API key; gateway = Claude through Cloudflare AI Gateway
+ * unified billing (no Anthropic key); workers-ai = a Workers AI model (lighter, no tools);
+ * off = no LLM: deterministic rules and templates only.
+ */
+export type AiProviderKind = "anthropic" | "gateway" | "workers-ai" | "off";
+
+export interface AiInfo {
+  provider: AiProviderKind;
+  /** Main model label (Claude agent model or the Workers AI model); null when off. */
+  model: string | null;
+  /** Technical reason the configured provider is not in use (for status panels, never chat text); null when fine. */
+  note?: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Triage (WA strata terminology: strata company, council, contributions, by-laws)
 // ---------------------------------------------------------------------------
 
@@ -102,8 +121,10 @@ export interface Triage {
   needsHuman: boolean;
   suspectedPromptInjection: boolean;
   confidence: number; // 0..1
-  engine: "claude" | "rules";
+  engine: "claude" | "rules" | "workers-ai";
   model: string | null;
+  /** Provider that served the engine ("anthropic" or "gateway" for Claude). Absent on older records. */
+  provider?: AiProviderKind | null;
   triagedAt: string; // ISO
 }
 
@@ -126,6 +147,8 @@ export interface InboundInput {
   attachments?: { name: string; docId: string | null }[];
   /** true when created from the hub's "Simulate inbound" panel. */
   simulated?: boolean;
+  /** Email only: false when SPF/DKIM/DMARC (or envelope alignment) do not back the From address, so it may be forged. */
+  senderVerified?: boolean | null;
 }
 
 export type ThreadStatus = "new" | "triaged" | "awaiting_approval" | "replied" | "closed";
@@ -160,6 +183,8 @@ export interface Message {
   attachments: { name: string; docId: string | null }[];
   createdAt: string;
   author: string | null; // staff name for outbound, null for inbound
+  /** Inbound email only: false when the From address could not be verified (possibly forged); null when not checked. */
+  senderVerified?: boolean | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,7 +263,13 @@ export interface Approval {
   decidedBy: string | null;
   /** Result of execution, e.g. "Sent (messageId <...>)" or error text. */
   result: string | null;
-  engine: "claude" | "template";
+  engine: "claude" | "template" | "workers-ai";
+  /** Model that wrote the draft (null for templates). Absent on older records. */
+  model?: string | null;
+  /** Provider that served the engine ("anthropic" or "gateway" for Claude). Absent on older records. */
+  provider?: AiProviderKind | null;
+  /** True when the approval belongs to a simulated thread (approving still sends a real email). */
+  simulated?: boolean;
 }
 
 export interface ApprovalDecision {
@@ -281,6 +312,14 @@ export interface DocMeta {
   uploadedBy: string;
 }
 
+/** DocMeta.uploadedBy prefix for attachments filed from inbound email: untrusted, never a building record. */
+export const EMAILED_UPLOAD_PREFIX = "email:";
+
+/** The sender of an emailed attachment ("email:jane@example.com" → "jane@example.com"), else null. */
+export function emailedBy(uploadedBy: string | null | undefined): string | null {
+  return uploadedBy?.startsWith(EMAILED_UPLOAD_PREFIX) ? uploadedBy.slice(EMAILED_UPLOAD_PREFIX.length) || "unknown sender" : null;
+}
+
 export interface SearchHit {
   docId: string;
   docName: string;
@@ -288,6 +327,8 @@ export interface SearchHit {
   chunkIndex: number;
   snippet: string;
   score: number;
+  /** Who added the document ("seed", a staff name, or "email:<sender>" for an emailed attachment). */
+  uploadedBy?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -379,6 +420,8 @@ export interface PropertyState {
   profile: PropertyProfile | null;
   counts: PropertyCounts;
   aiOnline: boolean;
+  /** Which LLM provider and model the agent is using right now. */
+  ai?: AiInfo;
   busy: { active: boolean; label: string | null; since: string | null };
   recentActivity: ActivityEvent[]; // newest first, max 25
   /** Bumped on every change so clients know to refetch lists. */
@@ -399,12 +442,16 @@ export interface PropertyCard {
   profile: PropertyProfile;
   counts: PropertyCounts;
   lastActivityAt: string | null;
+  /** Set when the building agent did not respond: counts are then unknown, not zero. */
+  error?: string | null;
 }
 
 export interface PortfolioBrief {
   text: string; // markdown-ish plain text
   generatedAt: string;
-  engine: "claude" | "rules";
+  engine: "claude" | "rules" | "workers-ai";
+  model?: string | null;
+  provider?: AiProviderKind | null;
   highlights: { propertyId: string; label: string; priority: Priority | null }[];
 }
 
@@ -413,6 +460,8 @@ export interface SessionInfo {
   staffName: string | null;
   authRequired: boolean;
   aiOnline: boolean;
+  /** Which LLM provider and model the Worker is configured to use. */
+  ai?: AiInfo;
   appName: string;
   companyName: string;
   emailDomain: string;

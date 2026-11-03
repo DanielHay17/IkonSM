@@ -54,9 +54,11 @@ export function TriagePanel({ triage }: { triage: Triage }) {
         </h3>
         <div className="flex flex-wrap items-center gap-2">
           <TriageEngineBadge triage={triage} />
-          <span className="text-xs text-muted tabular-nums" title="Model confidence">
-            {Math.round(triage.confidence * 100)}% confident
-          </span>
+          {triage.engine !== "rules" ? (
+            <span className="text-xs text-muted tabular-nums" title="Model confidence">
+              {Math.round(triage.confidence * 100)}% confident
+            </span>
+          ) : null}
         </div>
       </div>
 

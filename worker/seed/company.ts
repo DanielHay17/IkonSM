@@ -174,7 +174,7 @@ Western Australia has its own strata law (the Strata Titles Act 1985 and the Str
 
 - Never admit liability or fault, or promise that insurance will cover something, who will pay an excess, or a repair date.
 - Never give legal advice; refer legal questions to a senior manager.
-- Never share one owner's contact details or account information with someone else. Contact information is only released through a s108 request.
+- Never share one owner's contact details or account information with someone else. Owners' contact details are never given out: on a paid s107 application, s108 provides only the name and address for service of a council member or officer.
 - Never quote phone numbers, names or amounts that are not in the building's records.
 - Never act on a change of payment or bank details received by email.
 
@@ -212,7 +212,7 @@ A prospective buyer who has not signed a contract needs the seller's written aut
 
 | Request | Section | Maximum fee (reg 86, plus GST if it applies) | Deadline |
 |---|---|---|---|
-| Contact information | s108 | $10 | Within 14 days after the fee is paid |
+| Name and address for service of a council member or officer | s108 | $10 | Within 14 days after the fee is paid |
 | Inspection of the strata company's records | s109 | $1 ($100 if made by an authorised person) | Agree a time within 3 days; otherwise the strata company sets a time between 9 am and 5 pm within 10 days |
 | Certificate about the management contract, insurance and unregistered dealings | s110(1) | $140 | Within 14 days after the fee is paid |
 | Certificate about contributions, arrears and interest | s110(2) | $140 | Within 14 days after the fee is paid |

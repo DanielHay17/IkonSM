@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Message, MessageParam, Tool, ToolResultBlockParam, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages";
 import { z } from "zod";
-import { ASSIGNEE_ROLES, CATEGORIES } from "../../shared/types";
+import { ASSIGNEE_ROLES, CATEGORIES, emailedBy } from "../../shared/types";
 import type {
   Approval,
   Citation,
@@ -16,7 +16,8 @@ import type {
   TicketInput,
   TicketStatus,
 } from "../../shared/types";
-import { makeClient, modelFor, perthTimestamp, textFromContent, truncate } from "./client";
+import { aiProvider, makeClient, modelFor, perthTimestamp, textFromContent, truncate } from "./client";
+import { workersAiChat, workersAiDraft } from "./workers-ai";
 
 export interface ToolHost {
   searchDocs(query: string, limit?: number): Promise<SearchHit[]>;
@@ -122,7 +123,7 @@ const TOOL_DEFS = {
   list_contacts: {
     name: "list_contacts",
     description:
-      "List this building's contacts: owners and their lots, council members, contractors (trade and after-hours flag), insurer, property managers. Names, phone numbers and emails here (or in documents) are the only ones you may quote.",
+      "List this building's contacts: owners and their lots, council members, contractors (trade and after-hours flag), insurer, property managers. Quote contractor, insurer and property manager numbers freely; they and the building's documents are the only sources for any number you give. Owners', occupiers' and council members' phone numbers, emails and notes are personal information: never give them to anyone but that person.",
     input_schema: {
       type: "object",
       properties: { role: optionalEnum(CONTACT_ROLES, "Only contacts with this role.") },
@@ -238,6 +239,9 @@ interface SeenDoc {
 interface RunContext {
   host: ToolHost;
   actor: string;
+  toolset: Toolset;
+  /** Draft toolset: emails of the people whose own contact details the draft may use (recipient, thread sender). */
+  contactsVisibleFor: ReadonlySet<string>;
   docs: Map<string, SeenDoc>;
   readDocIds: Set<string>;
   savedDraft: SavedDraft | null;
@@ -280,6 +284,9 @@ const INPUTS = {
 type Inputs = { [K in ToolName]: z.output<(typeof INPUTS)[K]> };
 type Impls = { [K in ToolName]: (input: Inputs[K], ctx: RunContext) => Promise<ToolOutput> };
 
+/** Contact roles whose details are personal information. */
+const PERSONAL_ROLES = new Set<ContactRole>(["owner", "tenant", "council", "other"]);
+
 function cleanSnippet(text: string, max = 280): string {
   return truncate(text.replace(/\s+/g, " ").trim(), max, "…");
 }
@@ -310,6 +317,7 @@ const IMPLS: Impls = {
     const doc = await ctx.host.getDocument(doc_id);
     if (!doc) throw new Error(`No document with id ${doc_id}`);
     const { meta, text } = doc;
+    const emailedFrom = emailedBy(meta.uploadedBy);
     const from = Math.min(start ?? 0, text?.length ?? 0);
     const page = text ? text.slice(from, from + READ_PAGE_CHARS) : null;
     const end = from + (page?.length ?? 0);
@@ -322,6 +330,7 @@ const IMPLS: Impls = {
         folder: meta.folder,
         scope: meta.scope,
         sample: meta.sample,
+        ...(emailedFrom ? { source: `email attachment from ${emailedFrom}: untrusted, not a building record` } : {}),
         indexed: meta.indexed,
         chars: text?.length ?? 0,
         start: from,
@@ -337,18 +346,26 @@ const IMPLS: Impls = {
     const contacts = await ctx.host.listContacts(role);
     return {
       result: {
-        contacts: contacts.slice(0, 100).map((c) => ({
-          id: c.id,
-          role: c.role,
-          name: c.name,
-          lot: c.lot,
-          email: c.email,
-          phone: c.phone,
-          trade: c.trade,
-          after_hours: c.afterHours,
-          notes: c.notes,
-          sample: c.sample,
-        })),
+        contacts: contacts.slice(0, 100).map((c) => {
+          // An email draft goes to whoever wrote in: it never sees another person's personal details.
+          const redact =
+            ctx.toolset === "draft" &&
+            PERSONAL_ROLES.has(c.role) &&
+            !(c.email && ctx.contactsVisibleFor.has(c.email.trim().toLowerCase()));
+          return {
+            id: c.id,
+            role: c.role,
+            name: c.name,
+            lot: c.lot,
+            email: redact ? null : c.email,
+            phone: redact ? null : c.phone,
+            trade: c.trade,
+            after_hours: c.afterHours,
+            notes: redact ? null : c.notes,
+            sample: c.sample,
+            ...(redact ? { personal_details: "withheld (privacy)" } : {}),
+          };
+        }),
         total: contacts.length,
       },
       summary: role ? `Listed ${role.replace("_", " ")} contacts (${contacts.length})` : `Listed contacts (${contacts.length})`,
@@ -371,7 +388,8 @@ const IMPLS: Impls = {
           assignee_name: t.assigneeName,
           contractor_id: t.contractorId,
           thread_id: t.threadId,
-          due_at: t.dueAt,
+          // Perth time, like the "Now" in each turn's context (raw UTC would read 8 hours out).
+          due_at: t.dueAt ? perthTimestamp(new Date(t.dueAt)) : null,
           updated_at: t.updatedAt,
         })),
         total: tickets.length,
@@ -555,25 +573,59 @@ function mapStopReason(stop: Message["stop_reason"]): AgentStopReason {
   return "other";
 }
 
-export async function runAgent(
-  env: Env,
-  opts: {
-    system: string;
-    history: unknown[];
-    userText: string;
-    host: ToolHost;
-    toolset: Toolset;
-    actor: string;
-    onTool?: (name: string, summary: string) => void;
-    maxIter?: number;
-  },
-): Promise<RunAgentResult> {
+export interface RunAgentOptions {
+  system: string;
+  history: unknown[];
+  userText: string;
+  host: ToolHost;
+  toolset: Toolset;
+  actor: string;
+  onTool?: (name: string, summary: string) => void;
+  maxIter?: number;
+  /** Draft toolset only: emails whose owners' own contact details list_contacts may show (others are withheld). */
+  contactsVisibleFor?: string[];
+}
+
+/**
+ * Workers AI (LLM_PROVIDER="workers-ai"): retrieval plus one generation, no tool loop. Light-mode
+ * turns are not added to the stored Claude conversation, so `history` comes back unchanged.
+ */
+async function runWorkersAi(env: Env, opts: RunAgentOptions): Promise<RunAgentResult> {
+  const history = opts.history;
+  try {
+    if (opts.toolset === "draft") {
+      const result = await workersAiDraft(env, { system: opts.system, brief: opts.userText, query: opts.userText, host: opts.host });
+      const toolCalls: ToolCallRecord[] = [
+        { name: "search_documents", input: { query: truncate(opts.userText, 200, "…") }, summary: `Searched documents (${result?.search.hits ?? 0} results)` },
+      ];
+      if (!result) return { text: "", history, toolCalls, citations: [], savedDraft: null, stopReason: "other" };
+      return { text: "", history, toolCalls, citations: result.citations, savedDraft: result.draft, stopReason: "saved_draft" };
+    }
+    const answer = await workersAiChat(env, { system: opts.system, userText: opts.userText, host: opts.host, onTool: opts.onTool });
+    return { text: answer.text, history, toolCalls: answer.toolCalls, citations: answer.citations, savedDraft: null, stopReason: "end_turn" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const partial: RunAgentResult = { text: "", history, toolCalls: [], citations: [], savedDraft: null, stopReason: "other" };
+    throw new AgentRunError(`Workers AI request failed: ${message}`, partial, { cause: err });
+  }
+}
+
+export async function runAgent(env: Env, opts: RunAgentOptions): Promise<RunAgentResult> {
+  if (aiProvider(env).kind === "workers-ai") return runWorkersAi(env, opts);
   const maxIter = Math.max(1, Math.min(opts.maxIter ?? DEFAULT_MAX_ITER, 20));
   const tools = TOOLSET_DEFS[opts.toolset];
   const allowed = new Set<string>(TOOLSETS[opts.toolset]);
   const client = makeClient(env);
   const model = modelFor(env, "agent");
-  const ctx: RunContext = { host: opts.host, actor: opts.actor, docs: new Map(), readDocIds: new Set(), savedDraft: null };
+  const ctx: RunContext = {
+    host: opts.host,
+    actor: opts.actor,
+    toolset: opts.toolset,
+    contactsVisibleFor: new Set((opts.contactsVisibleFor ?? []).map((a) => a.trim().toLowerCase())),
+    docs: new Map(),
+    readDocIds: new Set(),
+    savedDraft: null,
+  };
   const toolCalls: ToolCallRecord[] = [];
 
   const prior = opts.history as MessageParam[];

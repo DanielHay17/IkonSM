@@ -39,6 +39,8 @@ export interface SimulateInput {
   fromAddress: string;
   subject: string;
   text: string;
+  /** Start a fresh thread instead of joining one with the same sender and subject. */
+  newThread?: boolean;
 }
 
 export type TicketPatch = Partial<TicketInput> & { status?: TicketStatus };
@@ -175,6 +177,8 @@ export const api = {
   closeThread: (id: string, threadId: string) => post<{ ok: true }>(`${prop(id)}/threads/${seg(threadId)}/close`),
   simulate: (id: string, input: SimulateInput) =>
     post<{ threadId: string; messageId: string }>(`${prop(id)}/simulate`, input),
+  resetSimulated: (id: string) =>
+    post<{ threads: number; approvals: number; tickets: number }>(`${prop(id)}/simulated/reset`),
 
   propertyApprovals: (id: string, status?: ApprovalStatus) =>
     get<Approval[]>(withQuery(`${prop(id)}/approvals`, { status })),

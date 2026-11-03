@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
-import { VAULT_FOLDERS, type DocMeta } from "../../../shared/types";
+import { VAULT_FOLDERS, emailedBy, type DocMeta } from "../../../shared/types";
 import { api } from "../../api";
 import { Badge } from "../../components/Badge";
 import { Button, IconButton, buttonClasses } from "../../components/Button";
@@ -8,7 +8,7 @@ import { EmptyState, ErrorState } from "../../components/EmptyState";
 import { inputClasses, selectClasses } from "../../components/Field";
 import { Icon } from "../../components/Icon";
 import { ConfirmDialog, Modal } from "../../components/Modal";
-import { Highlight } from "../../components/RichText";
+import { Highlight, RichText } from "../../components/RichText";
 import { SkeletonList, SkeletonText } from "../../components/Skeleton";
 import { CompanyPolicyBadge, IndexedBadge, SampleBadge } from "../../components/StatusBadges";
 import { useToast } from "../../components/Toast";
@@ -249,10 +249,11 @@ function DocRow({ doc, onView, onDelete, showFolder }: { doc: DocMeta; onView: (
           <IndexedBadge indexed={doc.indexed} />
           {doc.sample ? <SampleBadge /> : null}
           {doc.scope === "company" ? <CompanyPolicyBadge /> : null}
+          <EmailedBadge uploadedBy={doc.uploadedBy} />
           <span className="text-xs text-muted">
             {showFolder ? `${doc.folder} · ` : ""}
             {formatBytes(doc.size)} · <span title={formatDateTime(doc.uploadedAt)}>{timeAgo(doc.uploadedAt)}</span>
-            {doc.uploadedBy ? ` by ${doc.uploadedBy}` : ""}
+            {doc.uploadedBy && !emailedBy(doc.uploadedBy) ? ` by ${doc.uploadedBy}` : ""}
           </span>
         </div>
       </div>
@@ -267,7 +268,46 @@ function DocRow({ doc, onView, onDelete, showFolder }: { doc: DocMeta; onView: (
   );
 }
 
-function DocViewer({ docId, onClose, onDelete }: { docId: string | null; onClose: () => void; onDelete: (doc: DocMeta) => void }) {
+/** Attachments filed from inbound email: anyone can send one, so the agents never treat them as building records. */
+function EmailedBadge({ uploadedBy }: { uploadedBy: string | undefined }) {
+  const sender = emailedBy(uploadedBy);
+  if (!sender) return null;
+  return (
+    <Badge tone="amber" icon="mail" title="Emailed in, not verified: the agents do not use it as a building record">
+      Emailed by {sender}
+    </Badge>
+  );
+}
+
+/** Markdown tables read badly as text: rows become "cell · cell" lines and separator rows are dropped. */
+function flattenTables(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*\|?[-\s|:]+\|?\s*$/.test(line) || !line.includes("-"))
+    .map((line) =>
+      line.trim().startsWith("|")
+        ? `- ${line
+            .split("|")
+            .map((cell) => cell.trim())
+            .filter(Boolean)
+            .join(" · ")}`
+        : line,
+    )
+    .join("\n");
+}
+
+function DocViewer({
+  docId,
+  match,
+  onClose,
+  onDelete,
+}: {
+  docId: string | null;
+  /** The search passage that led here, shown first so the reader does not have to hunt for it. */
+  match: string | null;
+  onClose: () => void;
+  onDelete: (doc: DocMeta) => void;
+}) {
   const { propertyId } = useBuilding();
   const doc = useResource(docId ? `doctext:${propertyId}:${docId}` : null, () => api.docText(propertyId, docId ?? ""));
   const meta = doc.data?.meta;
@@ -288,6 +328,7 @@ function DocViewer({ docId, onClose, onDelete }: { docId: string | null; onClose
             <IndexedBadge indexed={meta.indexed} />
             {meta.sample ? <SampleBadge /> : null}
             {meta.scope === "company" ? <CompanyPolicyBadge /> : null}
+            <EmailedBadge uploadedBy={meta.uploadedBy} />
           </span>
         ) : null
       }
@@ -315,7 +356,17 @@ function DocViewer({ docId, onClose, onDelete }: { docId: string | null; onClose
               Sample document: replace it with the real record before relying on it.
             </p>
           ) : null}
-          <pre className="font-sans text-[13px] leading-relaxed break-words whitespace-pre-wrap text-ink-soft">{doc.data.text}</pre>
+          {match ? (
+            <div className="mb-4 rounded-lg bg-accent-soft/60 px-3 py-2 text-[13px] text-ink-soft ring-1 ring-accent/15 ring-inset">
+              <p className="mb-0.5 text-xs font-semibold text-accent-strong">Matched passage</p>
+              {match}
+            </div>
+          ) : null}
+          {/\.(md|markdown)$/i.test(meta?.name ?? "") ? (
+            <RichText text={flattenTables(doc.data.text)} />
+          ) : (
+            <pre className="font-sans text-[13px] leading-relaxed break-words whitespace-pre-wrap text-ink-soft">{doc.data.text}</pre>
+          )}
         </>
       ) : (
         <EmptyState compact icon="file" title="No text extracted" description="Only the name and folder are searchable. Download the original to read it." />
@@ -324,7 +375,7 @@ function DocViewer({ docId, onClose, onDelete }: { docId: string | null; onClose
   );
 }
 
-function SearchResults({ query, onOpen }: { query: string; onOpen: (docId: string) => void }) {
+function SearchResults({ query, onOpen }: { query: string; onOpen: (docId: string, snippet: string) => void }) {
   const { propertyId } = useBuilding();
   const hits = useResource(`search:${propertyId}:${query}`, () => api.search(propertyId, query));
 
@@ -337,11 +388,12 @@ function SearchResults({ query, onOpen }: { query: string; onOpen: (docId: strin
     <ol className="divide-y divide-line" aria-label="Search results">
       {hits.data.map((hit, i) => (
         <li key={`${hit.docId}-${hit.chunkIndex}-${i}`}>
-          <button type="button" onClick={() => onOpen(hit.docId)} className="block w-full px-4 py-3.5 text-left hover:bg-subtle">
+          <button type="button" onClick={() => onOpen(hit.docId, hit.snippet)} className="block w-full px-4 py-3.5 text-left hover:bg-subtle">
             <span className="flex items-center gap-2">
               <Icon name="file" className="size-4 text-muted" />
               <span className="truncate text-sm font-medium text-ink">{hit.docName}</span>
               <span className="shrink-0 text-xs text-muted">{hit.folder}</span>
+              <EmailedBadge uploadedBy={hit.uploadedBy} />
             </span>
             <span className="mt-1.5 line-clamp-3 block text-[13px] leading-relaxed text-ink-soft">
               <Highlight text={hit.snippet} query={query} />
@@ -364,16 +416,21 @@ export function VaultTab() {
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [viewing, setViewing] = useState<string | null>(null);
+  const [match, setMatch] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<DocMeta | null>(null);
 
   // Citations elsewhere link here with ?doc=<id> to open that document's text.
   useEffect(() => {
     const docId = new URLSearchParams(search).get("doc");
-    if (docId) setViewing(docId);
+    if (docId) {
+      setViewing(docId);
+      setMatch(null);
+    }
   }, [search]);
 
   const closeViewer = () => {
     setViewing(null);
+    setMatch(null);
     if (new URLSearchParams(window.location.search).has("doc")) navigate(paths.building(propertyId, "vault"), { replace: true });
   };
 
@@ -444,7 +501,13 @@ export function VaultTab() {
                 Clear
               </Button>
             </div>
-            <SearchResults query={query} onOpen={setViewing} />
+            <SearchResults
+              query={query}
+              onOpen={(docId, snippet) => {
+                setViewing(docId);
+                setMatch(snippet);
+              }}
+            />
           </Card>
         ) : null}
 
@@ -465,7 +528,11 @@ export function VaultTab() {
           ) : visible.length ? (
             <ul className="divide-y divide-line">
               {visible.map((doc) => (
-                <DocRow key={doc.id} doc={doc} showFolder={filter.kind !== "folder"} onView={() => setViewing(doc.id)} onDelete={() => setDeleting(doc)} />
+                <DocRow key={doc.id} doc={doc} showFolder={filter.kind !== "folder"} onView={() => {
+                    setViewing(doc.id);
+                    setMatch(null);
+                  }}
+                  onDelete={() => setDeleting(doc)} />
               ))}
             </ul>
           ) : (
@@ -474,7 +541,7 @@ export function VaultTab() {
         </Card>
       </div>
 
-      <DocViewer docId={viewing} onClose={closeViewer} onDelete={setDeleting} />
+      <DocViewer docId={viewing} match={match} onClose={closeViewer} onDelete={setDeleting} />
       <ConfirmDialog
         open={deleting !== null}
         onClose={() => setDeleting(null)}
