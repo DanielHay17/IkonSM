@@ -1,0 +1,84 @@
+import type { ReactNode } from "react";
+import { cx } from "../lib/cx";
+import { Icon, type IconName } from "./Icon";
+import { Link } from "./Link";
+
+export interface TabItem<K extends string> {
+  key: K;
+  label: string;
+  href: string;
+  icon?: IconName;
+  /** Small trailing element: a count or an alert dot. */
+  adornment?: ReactNode;
+}
+
+/** Route-backed tab bar: each tab is a link, so tabs are deep-linkable and work with back/forward. */
+export function TabNav<K extends string>({ items, active, label }: { items: TabItem<K>[]; active: K; label: string }) {
+  return (
+    <nav aria-label={label} className="-mx-4 overflow-x-auto px-4 scrollbar-thin sm:mx-0 sm:px-0">
+      <ul className="flex min-w-max gap-1 border-b border-line">
+        {items.map((item) => {
+          const selected = item.key === active;
+          return (
+            <li key={item.key}>
+              <Link
+                href={item.href}
+                aria-current={selected ? "page" : undefined}
+                className={cx(
+                  "relative -mb-px inline-flex h-11 items-center gap-2 border-b-2 px-3 text-sm font-medium transition-colors",
+                  selected
+                    ? "border-accent text-ink"
+                    : "border-transparent text-muted hover:border-line-strong hover:text-ink",
+                )}
+              >
+                {item.icon ? <Icon name={item.icon} className={cx("size-4", selected ? "text-accent" : "")} /> : null}
+                {item.label}
+                {item.adornment}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
+interface SegmentOption<V extends string> {
+  value: V;
+  label: string;
+}
+
+/** Small in-page toggle group (filters): plain buttons with aria-pressed, so Tab and Enter work as expected. */
+export function Segmented<V extends string>({
+  options,
+  value,
+  onChange,
+  label,
+}: {
+  options: SegmentOption<V>[];
+  value: V;
+  onChange: (value: V) => void;
+  label: string;
+}) {
+  return (
+    <div role="group" aria-label={label} className="inline-flex rounded-lg border border-line bg-subtle p-0.5">
+      {options.map((option) => {
+        const checked = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={checked}
+            onClick={() => onChange(option.value)}
+            className={cx(
+              "h-7 rounded-md px-2.5 text-xs font-medium whitespace-nowrap transition-colors",
+              checked ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink",
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

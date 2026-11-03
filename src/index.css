@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Surfaces and ink */
+  --color-canvas: #f7f6f3;
+  --color-surface: #ffffff;
+  --color-subtle: #faf9f7;
+  --color-ink: #14161a;
+  --color-ink-soft: #3a3e45;
+  --color-muted: #63676f;
+  --color-line: #e7e4dd;
+  --color-line-strong: #d5d1c7;
+
+  /* Sidebar */
+  --color-navy: #0f1b2d;
+  --color-navy-800: #15253b;
+  --color-navy-700: #1e3250;
+  --color-navy-text: #c3cddb;
+  --color-navy-muted: #8394ab;
+
+  /* Single accent for primary actions */
+  --color-accent: #0f766e;
+  --color-accent-strong: #0b5c55;
+  --color-accent-soft: #e6f2f0;
+
+  --shadow-card: 0 1px 2px rgb(20 22 26 / 0.04), 0 2px 6px -2px rgb(20 22 26 / 0.06);
+  --shadow-pop: 0 16px 40px -12px rgb(15 27 45 / 0.28), 0 2px 6px rgb(15 27 45 / 0.08);
+
+  --animate-soft-pulse: soft-pulse 1.8s ease-in-out infinite;
+  --animate-fade-in: fade-in 160ms ease-out;
+  --animate-rise-in: rise-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-slide-in-right: slide-in-right 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-slide-in-left: slide-in-left 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-blink: blink 1.1s steps(2, start) infinite;
+
+  @keyframes soft-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.4;
+      transform: scale(0.85);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes slide-in-right {
+    from {
+      transform: translateX(24px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes slide-in-left {
+    from {
+      transform: translateX(-24px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes blink {
+    to {
+      visibility: hidden;
+    }
+  }
+}
+
+@layer base {
+  html {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv11", "ss01", "ss03";
+  }
+
+  body {
+    min-height: 100dvh;
+    background-color: var(--color-canvas);
+    font-family: var(--font-sans);
+  }
+
+  /* One visible, consistent focus ring for keyboard users. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  }
+
+  /* Keep the page from scrolling behind an open modal dialog. */
+  html:has(dialog[open]) {
+    overflow: hidden;
+  }
+
+  dialog::backdrop {
+    background-color: rgb(15 27 45 / 0.45);
+    backdrop-filter: blur(2px);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+@utility scrollbar-dark {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.18) transparent;
+}
