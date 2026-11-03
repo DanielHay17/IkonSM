@@ -199,6 +199,9 @@ describe("building chat (AI offline)", () => {
     expect(answer.text).toMatch(/water main/i);
     // The passage that actually answers the question (the phrase "water main" ranks it, the cap keeps it).
     expect(answer.text).toMatch(/red lever valve/i);
+    // ...and it comes first: the passage whose line starts with "water main" leads, quoted from that line.
+    const firstPassage = answer.text.split("\n").find((line) => line.startsWith("- "));
+    expect(firstPassage).toMatch(/Water main \(stop-cock\).*red lever valve/);
     // The technical reason (env var names) stays in the activity log, not in the answer.
     expect(answer.text).not.toMatch(/ANTHROPIC_API_KEY|CF_AIG_TOKEN/);
     // Tables read as plain text, not "| a | b |" rows.

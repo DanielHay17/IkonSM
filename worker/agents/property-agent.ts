@@ -53,7 +53,7 @@ import { aiInfo, aiOnline, aiProvider, offlineReason, perthDate, perthShort } fr
 import { draftReply as composeDraft } from "../ai/drafting";
 import { propertySystemPrompt } from "../ai/prompts";
 import { triageMessage } from "../ai/triage";
-import { chunkText, ftsQuery } from "../docs/chunk";
+import { chunkText, definingLine, ftsQuery, queryPhrases } from "../docs/chunk";
 import { extractText } from "../docs/extract";
 import { guessMime, r2KeyFor } from "../docs/vault";
 import { parseInbound } from "../email/inbound";
@@ -182,7 +182,12 @@ type NewApproval = Pick<
 > & { model: string | null; provider: Approval["provider"] };
 type WorkOrder = { ticket: Ticket; contractor: Contact | null; created: boolean };
 export type InboundLimit = { limited: boolean; reason: string | null };
-type SearchOptions = { includeEmailed?: boolean; perDoc?: number };
+type SearchOptions = {
+  includeEmailed?: boolean;
+  perDoc?: number;
+  /** Put passages with a line that starts with the asked-about phrase first, with that line as the snippet. */
+  preferDefinitions?: boolean;
+};
 type BusyJob = { label: string; since: string };
 type SqlValue = string | number | null;
 
@@ -1235,14 +1240,18 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
         `${EMAILED_UPLOAD_PREFIX}%`,
         max * 2 * perDoc,
       );
-      return capPerDoc(rows, perDoc)
+      const phrases = opts.preferDefinitions ? queryPhrases(query) : [];
+      const ranked = capPerDoc(rows, perDoc).map((r) => ({ r, definition: definingLine(r.body, phrases) }));
+      // Stable: passages that define the thing asked about first, otherwise BM25 order.
+      if (phrases.length > 0) ranked.sort((a, b) => Number(b.definition !== null) - Number(a.definition !== null));
+      return ranked
         .slice(0, max)
-        .map((r) => ({
+        .map(({ r, definition }) => ({
           docId: r.doc_id,
           docName: r.doc_name,
           folder: r.folder,
           chunkIndex: r.chunk_index,
-          snippet: r.snippet?.trim() || previewOf(r.body, 240) || `${r.folder} / ${r.doc_name}`,
+          snippet: (definition ? truncate(definition, 320) : null) || r.snippet?.trim() || previewOf(r.body, 240) || `${r.folder} / ${r.doc_name}`,
           // bm25() is lower-is-better; expose higher-is-better.
           score: -r.rank,
           uploadedBy: r.uploaded_by,
@@ -1476,7 +1485,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
   }
 
   private offlineReply(text: string, reason: string): ChatReply {
-    const hits = this.searchIndex(text, 5, { perDoc: 3 });
+    const hits = this.searchIndex(text, 5, { perDoc: 3, preferDefinitions: true });
     const contacts = contractorLines(text, this.contactRows("contractor"));
     return {
       ...offlineAnswer(reason, hits, contacts),

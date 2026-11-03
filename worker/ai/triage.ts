@@ -822,7 +822,10 @@ export function rulesTriage(input: TriageInput): Triage {
   const injection = P.injection.some((re) => re.test(s.text));
   const paymentChange = has(s, P.paymentChange);
   const matched = RULES.find((rule) => rule.test(s))?.outcome(s) ?? GENERAL;
-  const outcome = paymentChange ? paymentChangeOutcome(s, matched) : matched;
+  // An injection attempt is not routed by whatever keywords the attack text happens to contain
+  // ("do not ask for approval" is not a renovation request). A real emergency keeps its P1 routing.
+  const screened = injection && matched.priority !== "P1" ? { ...GENERAL, summary: "Instructions aimed at the AI", confidence: 0.7 } : matched;
+  const outcome = paymentChange ? paymentChangeOutcome(s, screened) : screened;
   const contactRequest = has(s, P.contactRequest);
   const tenantNote = outcome.category !== "tenant_or_pm" && has(s, P.tenant) ? " (sender may be a tenant: copy the lot owner/PM)" : "";
 

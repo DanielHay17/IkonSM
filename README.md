@@ -51,7 +51,7 @@ Sign in with the `HUB_PASSCODE` from `.dev.vars` and any name. The pilot buildin
 
 ```bash
 npm run typecheck   # app, worker and test tsconfigs
-npm test            # 177 tests in workerd (vitest + @cloudflare/vitest-plugin)
+npm test            # 179 tests in workerd (vitest + @cloudflare/vitest-plugin)
 ```
 
 The tests cover:

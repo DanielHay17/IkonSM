@@ -104,6 +104,39 @@ const STOPWORDS = new Set([
  * result can never be an FTS5 syntax error.
  */
 export function ftsQuery(userQuery: string): string | null {
+  const parsed = parseQuery(userQuery);
+  if (!parsed) return null;
+  const { terms, phrases } = parsed;
+  return [...phrases.map((phrase) => `"${phrase}"`), ...terms.map((term) => `"${term}"*`)].join(" OR ");
+}
+
+/** The adjacent-term phrases ftsQuery adds for this text: "Where is the water main?" → ["water main"]. */
+export function queryPhrases(userQuery: string): string[] {
+  return parseQuery(userQuery)?.phrases ?? [];
+}
+
+/**
+ * The first line of a passage that starts with one of the phrases, ignoring list, table, quote and
+ * heading markers: the line that defines the thing asked about, e.g.
+ * "- Water main (stop-cock) for the whole building: red lever valve …" for "water main".
+ */
+export function definingLine(body: string, phrases: string[]): string | null {
+  if (phrases.length === 0 || typeof body !== "string") return null;
+  for (const raw of body.split("\n")) {
+    const line = raw
+      .replace(/^\s*(?:[-*+>#|]+\s*)*(?:\d+[.)]\s+)?/, "")
+      .replace(/\*\*|__|`/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const lower = line.toLowerCase();
+    if (phrases.some((phrase) => lower.startsWith(phrase) && !/[\p{L}\p{N}]/u.test(lower.charAt(phrase.length)))) {
+      return line;
+    }
+  }
+  return null;
+}
+
+function parseQuery(userQuery: string): { terms: string[]; phrases: string[] } | null {
   if (typeof userQuery !== "string") return null;
   const terms: string[] = [];
   const phrases: string[] = [];
@@ -124,5 +157,5 @@ export function ftsQuery(userQuery: string): string | null {
     if (terms.length === MAX_QUERY_TERMS) break;
   }
   if (terms.length === 0) return null;
-  return [...phrases.map((phrase) => `"${phrase}"`), ...terms.map((term) => `"${term}"*`)].join(" OR ");
+  return { terms, phrases };
 }
