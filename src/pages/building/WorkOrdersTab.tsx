@@ -1,4 +1,18 @@
-import { useId, useMemo, useState, type FormEvent } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  defaultDropAnimationSideEffects,
+  useDraggable,
+  useDroppable,
+  type Active,
+  type Announcements,
+  type DragEndEvent,
+  type DragStartEvent,
+  type DropAnimation,
+  type UniqueIdentifier,
+} from "@dnd-kit/core";
+import { useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   ASSIGNEE_LABELS,
   ASSIGNEE_ROLES,
@@ -13,6 +27,7 @@ import {
   type TicketStatus,
 } from "../../../shared/types";
 import { api } from "../../api";
+import { DragHandle, boardCollisions, columnKeyboardCoordinates, useBoardSensors, usePrefersReducedMotion } from "../../components/BoardDnd";
 import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { ErrorState, FormError } from "../../components/EmptyState";
@@ -21,6 +36,7 @@ import { Icon } from "../../components/Icon";
 import { Link } from "../../components/Link";
 import { Modal } from "../../components/Modal";
 import { Skeleton } from "../../components/Skeleton";
+import { Spinner } from "../../components/Spinner";
 import { PRIORITY_LABELS, PriorityBadge, TICKET_STATUS_LABELS } from "../../components/StatusBadges";
 import { useToast } from "../../components/Toast";
 import { useResource } from "../../hooks/useResource";
@@ -44,19 +60,48 @@ function byUrgency(a: Ticket, b: Ticket): number {
   return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || b.updatedAt.localeCompare(a.updatedAt);
 }
 
-function TicketCard({
-  ticket,
-  contractor,
-  onMove,
-  moving,
-}: {
+interface DragData {
+  ticket: Ticket;
+}
+
+const ticketOf = (active: Active) => (active.data.current as DragData | undefined)?.ticket;
+const columnOfData = (data: unknown) => (data as DragData | undefined)?.ticket.status;
+const columnLabel = (id: UniqueIdentifier) => TICKET_STATUS_LABELS[id as TicketStatus] ?? String(id);
+const isColumn = (id: UniqueIdentifier | undefined): id is TicketStatus => COLUMNS.includes(id as TicketStatus);
+
+const KEYBOARD_COORDINATES = columnKeyboardCoordinates(COLUMNS, columnOfData);
+const SCREEN_READER_INSTRUCTIONS = {
+  draggable:
+    "To move this work order, press Space or Enter to pick it up, use the left and right arrow keys to choose a status column, then press Space or Enter to drop it. Press Escape to cancel. The status menu on the card does the same.",
+};
+const DROP_ANIMATION: DropAnimation = {
+  duration: 180,
+  easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+  // While the overlay settles onto the card, let presses through so the card can be grabbed again.
+  // (A class, because dnd-kit applies `styles` with setProperty, which ignores camelCase names.)
+  sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: "0" } }, className: { dragOverlay: "pointer-events-none" } }),
+};
+
+const CARD_CLASSES = "rounded-xl border border-line bg-surface p-3.5 shadow-card";
+
+interface CardProps {
   ticket: Ticket;
   contractor: Contact | undefined;
   onMove: (status: TicketStatus) => void;
+  /** A status change is being saved. */
   moving: boolean;
-}) {
+}
+
+function TicketCardContent({
+  ticket,
+  contractor,
+  onMove,
+  moving = false,
+  handle,
+}: Partial<Pick<CardProps, "onMove" | "moving">> & Pick<CardProps, "ticket" | "contractor"> & { handle: ReactNode }) {
   const { propertyId } = useBuilding();
   const selectId = useId();
+  const overlay = !onMove;
   const overdue = ticket.dueAt && ticket.status !== "done" && new Date(ticket.dueAt).getTime() < Date.now();
   // The contractor usually is the assignee: show them once.
   const showContractor = !!contractor && contractor.name !== ticket.assigneeName;
@@ -64,9 +109,18 @@ function TicketCard({
   const due = ticket.dueAt ? (ticket.priority === "P3" ? formatDate(ticket.dueAt) : formatDateTime(ticket.dueAt)) : "";
 
   return (
-    <li className={cx("rounded-xl border border-line bg-surface p-3.5 shadow-card transition-opacity", moving && "opacity-60")}>
+    <>
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[11px] text-muted">{ticket.number}</span>
+        <span className="flex min-w-0 items-center gap-1">
+          {handle}
+          <span className="font-mono text-[11px] text-muted">{ticket.number}</span>
+          {moving ? (
+            // Only shows when a save is slow, so quick moves don't flicker.
+            <span className="ml-1 animate-[fade-in_160ms_ease-out_400ms_both] text-muted">
+              <Spinner className="size-3" label={null} />
+            </span>
+          ) : null}
+        </span>
         <PriorityBadge priority={ticket.priority} />
       </div>
       <p className="mt-1.5 line-clamp-3 text-sm leading-snug font-medium break-words text-ink" title={ticket.title}>
@@ -102,31 +156,132 @@ function TicketCard({
       </dl>
 
       <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
-        {ticket.threadId ? (
+        {ticket.threadId && !overlay ? (
           <Link href={paths.thread(propertyId, ticket.threadId)} className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline">
             <Icon name="mail" className="size-3.5" /> Thread
           </Link>
+        ) : ticket.threadId ? (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-accent">
+            <Icon name="mail" className="size-3.5" /> Thread
+          </span>
         ) : (
           <span className="text-[11px] text-muted">{timeAgo(ticket.updatedAt)}</span>
         )}
-        <label htmlFor={selectId} className="sr-only">
-          Move {ticket.number} to
-        </label>
-        <select
-          id={selectId}
-          value={ticket.status}
-          disabled={moving}
-          onChange={(e) => onMove(e.target.value as TicketStatus)}
-          className={cx(selectClasses(undefined, "h-7"), "w-auto! shrink-0 rounded-md! py-0 pl-2! text-xs!")}
-        >
-          {COLUMNS.map((status) => (
-            <option key={status} value={status}>
-              {TICKET_STATUS_LABELS[status]}
-            </option>
-          ))}
-        </select>
+        {onMove ? (
+          <>
+            <label htmlFor={selectId} className="sr-only">
+              Move {ticket.number} to
+            </label>
+            <select
+              id={selectId}
+              value={ticket.status}
+              disabled={moving}
+              onChange={(e) => onMove(e.target.value as TicketStatus)}
+              className={cx(selectClasses(undefined, "h-7"), "w-auto! shrink-0 rounded-md! py-0 pl-2! text-xs!")}
+            >
+              {COLUMNS.map((status) => (
+                <option key={status} value={status}>
+                  {TICKET_STATUS_LABELS[status]}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : (
+          <span className="inline-flex h-7 shrink-0 items-center rounded-md border border-line-strong bg-surface px-2 text-xs text-ink">
+            {TICKET_STATUS_LABELS[ticket.status]}
+          </span>
+        )}
       </div>
+    </>
+  );
+}
+
+/** A card on the board. Mouse and touch drags start anywhere except its links and menu; the keyboard uses the grip. */
+function TicketCard(props: CardProps) {
+  const { ticket, moving } = props;
+  const { setNodeRef, setActivatorNodeRef, listeners, attributes, isDragging } = useDraggable({
+    id: ticket.id,
+    data: { ticket } satisfies DragData,
+    disabled: moving,
+    attributes: { roleDescription: "draggable work order" },
+  });
+
+  return (
+    <li
+      ref={setNodeRef}
+      {...listeners}
+      data-ticket={ticket.number}
+      aria-busy={moving || undefined}
+      className={cx(
+        CARD_CLASSES,
+        // manipulation keeps page scrolling on touch; the long-press callout and text selection would fight the drag.
+        "touch-manipulation transition-opacity duration-150 [-webkit-touch-callout:none] pointer-coarse:select-none",
+        !moving && "cursor-grab",
+        isDragging && "opacity-40",
+      )}
+    >
+      <TicketCardContent {...props} handle={<DragHandle ref={setActivatorNodeRef} label={`Move ${ticket.number}`} {...attributes} />} />
     </li>
+  );
+}
+
+/** The copy that follows the pointer while dragging. Hidden from screen readers: the live region narrates the drag. */
+function TicketCardOverlay({ ticket, contractor }: Pick<CardProps, "ticket" | "contractor">) {
+  return (
+    <div data-drag-overlay="" aria-hidden="true" className={cx(CARD_CLASSES, "h-full cursor-grabbing shadow-pop ring-2 ring-accent/35")}>
+      <TicketCardContent ticket={ticket} contractor={contractor} handle={<DragHandle decorative label="" />} />
+    </div>
+  );
+}
+
+function BoardColumn({
+  status,
+  count,
+  dragging,
+  source,
+  children,
+}: {
+  status: TicketStatus;
+  count: number;
+  /** A card is being dragged somewhere on the board. */
+  dragging: boolean;
+  /** The dragged card came from this column. */
+  source: boolean;
+  children: ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: status });
+  const target = isOver && !source;
+
+  return (
+    <section
+      ref={setNodeRef}
+      aria-labelledby={`col-${status}`}
+      data-column={status}
+      data-over={isOver || undefined}
+      className={cx(
+        "flex min-w-0 flex-col rounded-xl p-3 transition-[background-color,box-shadow] duration-150",
+        // One background and one ring at a time: Tailwind's own ordering would decide between two.
+        target ? "bg-accent-soft ring-2 ring-accent" : isOver ? "bg-[#f0eee9] ring-2 ring-line-strong" : "bg-[#f0eee9] ring-1 ring-line/70",
+      )}
+    >
+      <h3 id={`col-${status}`} className="mb-3 flex items-center gap-2 px-1 text-[13px] font-semibold text-ink">
+        <span aria-hidden="true" className={cx("size-2 rounded-full", COLUMN_ACCENT[status])} />
+        {TICKET_STATUS_LABELS[status]}
+        <span className="ml-auto text-xs font-medium text-muted tabular-nums">{count}</span>
+      </h3>
+      {count ? (
+        children
+      ) : (
+        <p
+          className={cx(
+            "rounded-lg border border-dashed px-3 py-6 text-center text-xs transition-colors duration-150",
+            target ? "border-accent bg-surface/70 font-medium text-accent" : dragging ? "border-line-strong text-ink-soft" : "border-line-strong text-muted",
+          )}
+        >
+          {dragging ? "Drop here" : "Nothing here"}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -280,35 +435,96 @@ export function WorkOrdersTab() {
   const tickets = useResource(`tickets:${propertyId}`, () => api.tickets(propertyId), refreshKey);
   const contacts = useResource(`contacts:${propertyId}`, () => api.contacts(propertyId), refreshKey);
   const [creating, setCreating] = useState(false);
-  const [moving, setMoving] = useState<Set<string>>(new Set());
+  // Status changes being saved, by ticket id. They are laid over the fetched list, so a live
+  // refresh that lands before the server has the change can't snap the card back.
+  const [pending, setPending] = useState<ReadonlyMap<string, TicketStatus>>(new Map());
+  // While a card is being dragged the board holds still: live refreshes wait until the drop.
+  const [drag, setDrag] = useState<{ ticket: Ticket; board: Map<TicketStatus, Ticket[]> } | null>(null);
+  const reducedMotion = usePrefersReducedMotion();
+  const sensors = useBoardSensors(KEYBOARD_COORDINATES, reducedMotion);
 
   const contractors = useMemo(() => (contacts.data ?? []).filter((c) => c.role === "contractor"), [contacts.data]);
   const contactsById = useMemo(() => new Map((contacts.data ?? []).map((c) => [c.id, c])), [contacts.data]);
-  const columns = useMemo(() => {
+  const board = useMemo(() => {
     const grouped = new Map<TicketStatus, Ticket[]>(COLUMNS.map((s) => [s, []]));
-    for (const ticket of tickets.data ?? []) grouped.get(ticket.status)?.push(ticket);
+    for (const ticket of tickets.data ?? []) {
+      const status = pending.get(ticket.id) ?? ticket.status;
+      grouped.get(status)?.push(status === ticket.status ? ticket : { ...ticket, status });
+    }
     for (const list of grouped.values()) list.sort(byUrgency);
     return grouped;
-  }, [tickets.data]);
+  }, [tickets.data, pending]);
+  const columns = drag?.board ?? board;
+
+  const settle = (id: string) =>
+    setPending((current) => {
+      const next = new Map(current);
+      next.delete(id);
+      return next;
+    });
 
   const move = async (ticket: Ticket, status: TicketStatus) => {
-    if (status === ticket.status) return;
-    setMoving((s) => new Set(s).add(ticket.id));
-    tickets.mutate((list = []) => list.map((t) => (t.id === ticket.id ? { ...t, status } : t)));
+    if (status === ticket.status || pending.has(ticket.id)) return;
+    setPending((current) => new Map(current).set(ticket.id, status));
     try {
       const updated = await api.updateTicket(propertyId, ticket.id, { status });
       tickets.mutate((list = []) => list.map((t) => (t.id === updated.id ? updated : t)));
+      // A list request sent before the save committed could still land with the old status.
+      // Reloading now supersedes it, so the pending overlay can go in the same render.
+      void tickets.reload();
+      settle(ticket.id);
+      toast.success(`${ticket.number} moved to ${TICKET_STATUS_LABELS[updated.status]}`);
       void reloadOverview();
     } catch (err) {
-      tickets.mutate((list = []) => list.map((t) => (t.id === ticket.id ? ticket : t)));
+      settle(ticket.id);
       toast.error(`Couldn't move ${ticket.number}`, err);
-    } finally {
-      setMoving((s) => {
-        const next = new Set(s);
-        next.delete(ticket.id);
-        return next;
-      });
     }
+  };
+
+  // Screen reader narration for drags (dnd-kit reads these out through its live region).
+  const lastOver = useRef<UniqueIdentifier | null>(null);
+  const accessibility = useMemo(() => {
+    const name = (active: Active) => ticketOf(active)?.number ?? "The work order";
+    const home = (active: Active) => columnOfData(active.data.current);
+    const announcements: Announcements = {
+      onDragStart: ({ active }) => {
+        lastOver.current = home(active) ?? null;
+        const from = home(active);
+        return `Picked up ${name(active)}${from ? ` from ${columnLabel(from)}` : ""}.`;
+      },
+      onDragOver: ({ active, over }) => {
+        const id = over?.id ?? null;
+        if (id === lastOver.current) return undefined;
+        lastOver.current = id;
+        if (!over) return `${name(active)} is not over a column.`;
+        return over.id === home(active) ? `${name(active)} is back over ${columnLabel(over.id)}, where it started.` : `${name(active)} is over ${columnLabel(over.id)}.`;
+      },
+      onDragEnd: ({ active, over }) => {
+        const from = home(active);
+        if (!over || !isColumn(over.id)) return `${name(active)} was dropped outside the board. It stays in ${from ? columnLabel(from) : "its column"}.`;
+        if (over.id === from) return `${name(active)} was dropped back in ${columnLabel(over.id)}. Nothing changed.`;
+        return `Moved ${name(active)} to ${columnLabel(over.id)}.`;
+      },
+      onDragCancel: ({ active }) => {
+        const from = home(active);
+        return `Move cancelled. ${name(active)} stays in ${from ? columnLabel(from) : "its column"}.`;
+      },
+    };
+    return { announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS };
+  }, []);
+
+  const onDragStart = ({ active, activatorEvent }: DragStartEvent) => {
+    const ticket = ticketOf(active);
+    if (!ticket) return;
+    setDrag({ ticket, board });
+    // A small buzz confirms the long-press on phones that support it.
+    if (typeof TouchEvent !== "undefined" && activatorEvent instanceof TouchEvent) navigator.vibrate?.(10);
+  };
+
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    setDrag(null);
+    const ticket = ticketOf(active);
+    if (ticket && over && isColumn(over.id) && over.id !== ticket.status) void move(ticket, over.id);
   };
 
   const total = tickets.data?.length ?? 0;
@@ -320,7 +536,14 @@ export function WorkOrdersTab() {
         <div>
           <h2 className="text-base font-semibold text-ink">Work orders</h2>
           <p className="text-[13px] text-muted">
-            {tickets.data ? `${open} open · ${total} total. P1/P2 maintenance creates tickets automatically.` : "Loading…"}
+            {tickets.data ? (
+              <>
+                {open} open · {total} total. <span className="pointer-coarse:hidden">Drag</span>
+                <span className="hidden pointer-coarse:inline">Press and hold</span> a card to change its status. P1/P2 maintenance creates tickets automatically.
+              </>
+            ) : (
+              "Loading…"
+            )}
           </p>
         </div>
         <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
@@ -335,37 +558,46 @@ export function WorkOrdersTab() {
           <ErrorState error={tickets.error} onRetry={tickets.reload} title="Couldn't load work orders" />
         </Card>
       ) : (
-        <div className="-mx-4 overflow-x-auto px-4 pb-2 scrollbar-thin sm:mx-0 sm:px-0">
-          <div className="grid auto-cols-[minmax(196px,1fr)] grid-flow-col gap-3">
-            {COLUMNS.map((status) => {
-              const list = columns.get(status) ?? [];
-              return (
-                <section key={status} aria-labelledby={`col-${status}`} className="flex min-w-0 flex-col rounded-xl bg-[#f0eee9] p-3 ring-1 ring-line/70">
-                  <h3 id={`col-${status}`} className="mb-3 flex items-center gap-2 px-1 text-[13px] font-semibold text-ink">
-                    <span aria-hidden="true" className={cx("size-2 rounded-full", COLUMN_ACCENT[status])} />
-                    {TICKET_STATUS_LABELS[status]}
-                    <span className="ml-auto text-xs font-medium text-muted tabular-nums">{list.length}</span>
-                  </h3>
-                  {list.length ? (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={boardCollisions}
+          accessibility={accessibility}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={() => setDrag(null)}
+        >
+          <div className="-mx-4 overflow-x-auto px-4 pb-2 scrollbar-thin sm:mx-0 sm:px-0">
+            <div className="grid auto-cols-[minmax(196px,1fr)] grid-flow-col gap-3">
+              {COLUMNS.map((status) => {
+                const list = columns.get(status) ?? [];
+                return (
+                  <BoardColumn key={status} status={status} count={list.length} dragging={drag !== null} source={drag?.ticket.status === status}>
                     <ul className="space-y-3">
                       {list.map((ticket) => (
                         <TicketCard
                           key={ticket.id}
                           ticket={ticket}
                           contractor={ticket.contractorId ? contactsById.get(ticket.contractorId) : undefined}
-                          moving={moving.has(ticket.id)}
+                          moving={pending.has(ticket.id)}
                           onMove={(next) => void move(ticket, next)}
                         />
                       ))}
                     </ul>
-                  ) : (
-                    <p className="rounded-lg border border-dashed border-line-strong px-3 py-6 text-center text-xs text-muted">Nothing here</p>
-                  )}
-                </section>
-              );
-            })}
+                  </BoardColumn>
+                );
+              })}
+            </div>
           </div>
-        </div>
+          {/* Portalled so a transformed ancestor can't offset the fixed-position overlay. */}
+          {createPortal(
+            <DragOverlay dropAnimation={reducedMotion ? null : DROP_ANIMATION}>
+              {drag ? (
+                <TicketCardOverlay ticket={drag.ticket} contractor={drag.ticket.contractorId ? contactsById.get(drag.ticket.contractorId) : undefined} />
+              ) : null}
+            </DragOverlay>,
+            document.body,
+          )}
+        </DndContext>
       )}
 
       <CreateTicketModal
