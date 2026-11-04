@@ -1,8 +1,8 @@
 // A tiny history-API router: typed routes, path builders and a hook that re-renders on navigation.
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
-export const BUILDING_TABS = ["inbox", "work-orders", "vault", "agent", "computer", "contacts"] as const;
+export const BUILDING_TABS = ["inbox", "work-orders", "files", "agent", "computer", "contacts"] as const;
 export type BuildingTab = (typeof BUILDING_TABS)[number];
 
 export type Route =
@@ -24,6 +24,12 @@ function decodeSegment(segment: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Paths that moved: the building's Vault tab is now Files. Old links and bookmarks still work. */
+export function redirectFor(pathname: string): string | null {
+  const match = /^\/buildings\/([^/]+)\/vault\/?$/.exec(pathname);
+  return match ? `/buildings/${match[1]}/files` : null;
 }
 
 export function parseRoute(pathname: string): Route {
@@ -53,8 +59,8 @@ export const paths = {
   chiefOfStaff: () => "/chief-of-staff",
   building: (propertyId: string, tab: BuildingTab = "inbox") => `/buildings/${enc(propertyId)}/${tab}`,
   thread: (propertyId: string, threadId: string) => `/buildings/${enc(propertyId)}/inbox/${enc(threadId)}`,
-  /** Opens the vault with a document's text panel showing. */
-  vaultDoc: (propertyId: string, docId: string) => `/buildings/${enc(propertyId)}/vault?doc=${enc(docId)}`,
+  /** Opens the Files tab with a document's text panel showing. */
+  vaultDoc: (propertyId: string, docId: string) => `/buildings/${enc(propertyId)}/files?doc=${enc(docId)}`,
 };
 
 function currentLocation(): string {
@@ -86,7 +92,12 @@ export function useLocationSearch(): string {
   return useSyncExternalStore(subscribe, () => window.location.search);
 }
 
+/** The current route. A moved path renders its new route straight away and the address bar catches up. */
 export function useRoute(): Route {
   const pathname = useLocationPath();
-  return useMemo(() => parseRoute(pathname), [pathname]);
+  const moved = redirectFor(pathname);
+  useEffect(() => {
+    if (moved) navigate(moved + window.location.search + window.location.hash, { replace: true });
+  }, [moved]);
+  return useMemo(() => parseRoute(moved ?? pathname), [moved, pathname]);
 }

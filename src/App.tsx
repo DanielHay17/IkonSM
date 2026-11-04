@@ -4,6 +4,7 @@ import { ErrorState } from "./components/EmptyState";
 import { Spinner } from "./components/Spinner";
 import { ToastProvider } from "./components/Toast";
 import { Logo } from "./components/Wordmark";
+import { useOneDriveReturn } from "./hooks/useOneDriveReturn";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { BuildingPage } from "./pages/BuildingPage";
 import { ChiefOfStaffPage } from "./pages/ChiefOfStaffPage";
@@ -42,6 +43,8 @@ function Hub() {
   const route = useRoute();
   const routeName = route.name;
   const pageKey = route.name === "building" ? `building:${route.propertyId}` : route.name;
+  // Back from the Microsoft 365 sign-in (?onedrive=connected or ?onedrive=error).
+  useOneDriveReturn();
 
   // New page (not a tab or thread switch): start at the top and set the tab title.
   useEffect(() => {

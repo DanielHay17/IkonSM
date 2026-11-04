@@ -6,3 +6,9 @@ AI_GATEWAY_ID=
 # Cloudflare API token with "AI Gateway: Run". With CF_ACCOUNT_ID + AI_GATEWAY_ID and no
 # ANTHROPIC_API_KEY, Claude runs through AI Gateway unified billing (Cloudflare credits).
 CF_AIG_TOKEN=
+# Microsoft 365 (OneDrive and SharePoint import), from the Entra app registration. Leave empty to
+# keep the import switched off. The redirect URI to register is <hub origin>/api/integrations/onedrive/callback.
+MS_CLIENT_ID=
+MS_CLIENT_SECRET=
+# Optional: a tenant ID or domain to accept only that organisation's accounts (default "common").
+MS_TENANT=

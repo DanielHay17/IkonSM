@@ -120,7 +120,7 @@ export function PortfolioPage() {
     <>
       <PageHeader
         title="Portfolio"
-        description={cards ? `${plural(cards.length, "scheme")} managed by Ikon. Each building has its own agent, inbox, vault and memory.` : "Loading schemes…"}
+        description={cards ? `${plural(cards.length, "scheme")} managed by Ikon. Each building has its own agent, inbox, files and memory.` : "Loading schemes…"}
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">

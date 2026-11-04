@@ -17,12 +17,13 @@ import { cx } from "../../lib/cx";
 import { formatBytes, formatDateTime, plural, timeAgo } from "../../lib/format";
 import { navigate, paths, useLocationSearch } from "../../router";
 import { useBuilding } from "./BuildingContext";
+import { OneDriveButton } from "./OneDriveImport";
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const DEFAULT_UPLOAD_FOLDER = "07 Correspondence";
 const ACCEPT = ".pdf,.docx,.txt,.md,.csv,.json,.html,.htm,.eml,.png,.jpg,.jpeg,.xlsx,.doc";
 
-/** Folder filter: a vault folder, every document, or Ikon-wide policies. */
+/** Folder filter: a Master File Structure folder, every document, or Ikon-wide policies. */
 type FolderFilter = { kind: "all" } | { kind: "company" } | { kind: "folder"; folder: string };
 
 interface UploadItem {
@@ -77,7 +78,7 @@ function FolderTree({ docs, filter, onSelect }: { docs: DocMeta[]; filter: Folde
   };
 
   return (
-    <nav aria-label="Vault folders">
+    <nav aria-label="Folders">
       <ul className="space-y-0.5">
         {item("all", "All documents", docs.length, { kind: "all" }, "grid")}
         <li aria-hidden="true" className="my-2 border-t border-line" />
@@ -432,11 +433,12 @@ export function VaultTab() {
   const closeViewer = () => {
     setViewing(null);
     setMatch(null);
-    if (new URLSearchParams(window.location.search).has("doc")) navigate(paths.building(propertyId, "vault"), { replace: true });
+    if (new URLSearchParams(window.location.search).has("doc")) navigate(paths.building(propertyId, "files"), { replace: true });
   };
 
   const visible = useMemo(() => filterDocs(docs.data ?? [], filter), [docs.data, filter]);
-  const uploadFolder = filter.kind === "folder" && (VAULT_FOLDERS as readonly string[]).includes(filter.folder) ? filter.folder : DEFAULT_UPLOAD_FOLDER;
+  const filteredFolder = filter.kind === "folder" && (VAULT_FOLDERS as readonly string[]).includes(filter.folder) ? filter.folder : null;
+  const uploadFolder = filteredFolder ?? DEFAULT_UPLOAD_FOLDER;
   const heading = filter.kind === "all" ? "All documents" : filter.kind === "company" ? "Ikon company policies" : filter.folder;
 
   const runSearch = (event: FormEvent) => {
@@ -455,6 +457,16 @@ export function VaultTab() {
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[250px_minmax(0,1fr)]">
+      <div className="-mb-2 flex flex-wrap items-start justify-between gap-3 sm:items-center lg:col-span-2">
+        <div className="min-w-0">
+          <h2 className="heading-display text-[15px] leading-6 text-ink">Files</h2>
+          <p className="text-[13px] text-muted">
+            {docs.data ? `${plural(docs.data.length, "document")} in the Master File Structure. ` : ""}The agent reads and cites them.
+          </p>
+        </div>
+        <OneDriveButton defaultFolder={filteredFolder ?? VAULT_FOLDERS[0]} onImported={() => void docs.reload()} />
+      </div>
+
       <Card className="hidden p-2 lg:sticky lg:top-6 lg:block">
         {docs.data ? <FolderTree docs={docs.data} filter={filter} onSelect={setFilter} /> : <SkeletonList rows={4} />}
       </Card>
@@ -550,7 +562,8 @@ export function VaultTab() {
         title="Delete this document?"
         description={
           <>
-            <span className="font-medium text-ink">{deleting?.name}</span> will be removed from the vault and the agent's index. This can't be undone.
+            <span className="font-medium text-ink">{deleting?.name}</span> will be removed from this building's files and the agent's index. This can't
+            be undone.
           </>
         }
         confirmLabel="Delete document"
