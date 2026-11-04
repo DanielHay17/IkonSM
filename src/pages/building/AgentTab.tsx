@@ -16,7 +16,7 @@ export function AgentTab() {
   return (
     <ChatPanel
       title={`Chat with the SP ${profile.spNumber} agent`}
-      description="It searches this building's vault, contacts and work orders, cites its sources, and can draft replies or create work orders. Drafts always wait for approval."
+      description="It searches this building's files, contacts and work orders, cites its sources, and can draft replies or create work orders. Drafts always wait for approval."
       assistantName={name}
       intro="Answers come from this building's documents, contacts and records, with sources cited. It can draft replies for approval but never sends anything itself."
       resourceKey={`chat:${propertyId}`}

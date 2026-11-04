@@ -1466,7 +1466,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     try {
       await this.env.VAULT.put(r2Key, bytes, { httpMetadata: { contentType: "text/markdown; charset=utf-8" } });
     } catch (err) {
-      this.logActivity("error", `Could not store "${doc.name}" in the vault (indexed anyway)`, errorText(err));
+      this.logActivity("error", `Could not store "${doc.name}" in file storage (indexed anyway)`, errorText(err));
     }
     this.indexDocument(
       {

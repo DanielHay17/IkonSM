@@ -38,7 +38,7 @@ const decoder = new TextDecoder();
 // ---------------------------------------------------------------------------
 
 /** Secrets may be missing or "" in local dev and tests; both mean "unset". */
-function configured(value: string | undefined | null): string | null {
+export function configured(value: string | undefined | null): string | null {
   return value && value.trim() ? value : null;
 }
 
@@ -46,7 +46,8 @@ export function authRequired(env: Env): boolean {
   return (env.AUTH_REQUIRED ?? "").trim().toLowerCase() !== "false";
 }
 
-function sessionSecret(env: Env): string | null {
+/** The key for everything the hub signs or seals: SESSION_SECRET, or HUB_PASSCODE on a bare local setup. */
+export function sessionSecret(env: Env): string | null {
   return configured(env.SESSION_SECRET) ?? configured(env.HUB_PASSCODE);
 }
 
@@ -111,25 +112,25 @@ async function hmacKey(secret: string): Promise<CryptoKey> {
   return key;
 }
 
-async function hmacSha256(secret: string, data: string): Promise<Uint8Array> {
+export async function hmacSha256(secret: string, data: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.sign("HMAC", await hmacKey(secret), encoder.encode(data)));
 }
 
-async function sha256(value: string): Promise<Uint8Array> {
+export async function sha256(value: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(value)));
 }
 
-function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
+export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
   return a.byteLength === b.byteLength && crypto.subtle.timingSafeEqual(a, b);
 }
 
-function toBase64Url(bytes: Uint8Array): string {
+export function toBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function fromBase64Url(text: string): Uint8Array | null {
+export function fromBase64Url(text: string): Uint8Array | null {
   if (!/^[A-Za-z0-9_-]+$/.test(text)) return null;
   try {
     const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
@@ -218,7 +219,7 @@ function isLocalHost(url: URL): boolean {
 }
 
 /** Session cookies are Secure everywhere except plain-http localhost (local dev). */
-function cookieOptions(requestUrl: string, maxAge: number): CookieOptions {
+export function cookieOptions(requestUrl: string, maxAge: number): CookieOptions {
   const url = new URL(requestUrl);
   const localHttp = url.protocol === "http:" && isLocalHost(url);
   return { path: "/", httpOnly: true, sameSite: "Lax", secure: !localHttp, maxAge };

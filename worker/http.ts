@@ -6,9 +6,13 @@ import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
+import type { PropertyAgent } from "./agents/property-agent";
 
 export type AppVariables = { staffName: string };
 export type AppEnv = { Bindings: Env; Variables: AppVariables };
+export type PropertyStub = DurableObjectStub<PropertyAgent>;
+/** Routes under /api/properties/:id, where the building's id and agent are already resolved. */
+export type PropertyEnv = { Bindings: Env; Variables: AppVariables & { propertyId: string; agent: PropertyStub } };
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const MAX_ERROR_CHARS = 300;
@@ -104,6 +108,16 @@ function sizeLimit(maxSize: number): MiddlewareHandler {
     onError: (c) => c.json({ error: `Request body is larger than ${formatBytes(maxSize)}` }, 413),
   });
 }
+
+/**
+ * Stricter than requestGuard for mutations that reach outside the hub (Microsoft 365): the Origin header
+ * must be present as well as same-origin. Browsers always send it on fetch POSTs, so only scripts lack it.
+ */
+export const requireBrowserOrigin: MiddlewareHandler = async (c, next) => {
+  if (c.req.header("Origin") === undefined) throw new HTTPException(403, { message: "Origin header required" });
+  assertSameOrigin(c);
+  await next();
+};
 
 function assertSameOrigin(c: Context): void {
   const origin = c.req.header("Origin");

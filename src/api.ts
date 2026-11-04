@@ -14,6 +14,11 @@ import type {
   DocMeta,
   MemoryNote,
   Message,
+  OneDriveImportResponse,
+  OneDriveItemRef,
+  OneDriveListing,
+  OneDriveSource,
+  OneDriveStatus,
   PortfolioBrief,
   PropertyCard,
   PropertyOverview,
@@ -42,6 +47,14 @@ export interface SimulateInput {
   text: string;
   /** Start a fresh thread instead of joining one with the same sender and subject. */
   newThread?: boolean;
+}
+
+/** One level of the Microsoft 365 picker: a source, then optionally a site, a drive and a folder in it. */
+export interface OneDriveLocation {
+  source: OneDriveSource;
+  siteId?: string;
+  driveId?: string;
+  itemId?: string;
 }
 
 export type TicketPatch = Partial<TicketInput> & { status?: TicketStatus };
@@ -171,6 +184,12 @@ export const api = {
   resetCosChat: () => del<{ ok: true }>("/api/cos/chat"),
   approvals: () => get<Approval[]>("/api/approvals"),
 
+  // Microsoft 365 (OneDrive and SharePoint). Connecting is a top-level navigation, never a fetch.
+  onedriveStatus: () => get<OneDriveStatus>("/api/integrations/onedrive/status"),
+  onedriveConnectUrl: (returnTo?: string) => withQuery("/api/integrations/onedrive/connect", { return: returnTo }),
+  onedriveBrowse: (location: OneDriveLocation) => get<OneDriveListing>(withQuery("/api/integrations/onedrive/browse", { ...location })),
+  onedriveDisconnect: () => post<OneDriveStatus>("/api/integrations/onedrive/disconnect"),
+
   // Building
   overview: (id: string) => get<PropertyOverview>(prop(id)),
   threads: (id: string, status?: ThreadFilter) => get<Thread[]>(withQuery(`${prop(id)}/threads`, { status })),
@@ -206,6 +225,8 @@ export const api = {
   docDownloadUrl: (id: string, docId: string) => `${prop(id)}/docs/${seg(docId)}/download`,
   deleteDoc: (id: string, docId: string) => del<{ ok: true }>(`${prop(id)}/docs/${seg(docId)}`),
   search: (id: string, q: string) => get<SearchHit[]>(withQuery(`${prop(id)}/search`, { q })),
+  importFromOneDrive: (id: string, items: OneDriveItemRef[], folder: string) =>
+    post<OneDriveImportResponse>(`${prop(id)}/integrations/onedrive/import`, { items, folder }),
 
   contacts: (id: string, role?: ContactRole) => get<Contact[]>(withQuery(`${prop(id)}/contacts`, { role })),
   createContact: (id: string, input: ContactInput) => post<Contact>(`${prop(id)}/contacts`, input),

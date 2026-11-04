@@ -33,7 +33,7 @@ interface ChatPanelProps {
   refreshKey?: unknown;
   /** Live "what the agent is doing" label while it works on the reply. */
   busyLabel?: string | null;
-  /** Building id, so citations link into that building's vault. */
+  /** Building id, so citations link into that building's Files tab. */
   propertyId?: string;
   /** What answers look like with no LLM, shown above the composer. */
   offlineHint?: string;

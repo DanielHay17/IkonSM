@@ -139,7 +139,7 @@ function tabItems(propertyId: string, counts: PropertyCounts): TabItem<BuildingT
       ),
     },
     { key: "work-orders", label: "Work orders", icon: "board", href: paths.building(propertyId, "work-orders"), adornment: count(counts.openTickets, "open") },
-    { key: "vault", label: "Vault", icon: "folder", href: paths.building(propertyId, "vault"), adornment: count(counts.docs, "documents") },
+    { key: "files", label: "Files", icon: "folder", href: paths.building(propertyId, "files"), adornment: count(counts.docs, "documents") },
     { key: "agent", label: "Agent", icon: "bot", href: paths.building(propertyId, "agent") },
     { key: "computer", label: "Computer", icon: "terminal", href: paths.building(propertyId, "computer") },
     { key: "contacts", label: "Contacts", icon: "users", href: paths.building(propertyId, "contacts"), adornment: count(counts.contacts, "contacts") },
@@ -153,7 +153,7 @@ const TABS: Record<BuildingTab, (props: { threadId: string | null }) => ReactNod
       <WorkOrdersTab />
     </Suspense>
   ),
-  vault: () => <VaultTab />,
+  files: () => <VaultTab />,
   agent: () => <AgentTab />,
   computer: () => <ComputerTab />,
   contacts: () => <ContactsTab />,

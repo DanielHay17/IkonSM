@@ -71,6 +71,16 @@ const ICONS = {
     </>
   ),
   folder: <path d="M3 7.5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />,
+  /** OneDrive and Microsoft 365. */
+  cloud: <path d="M7.5 19H17a4 4 0 0 0 .9-7.9A6 6 0 0 0 6.4 10.2 4.5 4.5 0 0 0 7.5 19z" />,
+  /** A SharePoint document library: books on a shelf. */
+  library: (
+    <>
+      <rect x="3.5" y="4.5" width="4" height="15" rx="1" />
+      <rect x="9.5" y="4.5" width="4" height="15" rx="1" />
+      <path d="m15.6 5.9 2.9-.8 3.4 13.6-2.9.8z" />
+    </>
+  ),
   file: (
     <>
       <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />

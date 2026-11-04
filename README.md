@@ -1,6 +1,6 @@
 # Ikon Command Hub (IkonSM)
 
-An AI command hub for Ikon Strata Management (Perth, WA). Each strata plan has its own **building agent**. The agent has an email address, an inbox, a document vault, contacts, work orders, memory and an activity log (its "computer"). It triages every inbound message (P1/P2/P3 across 12 WA strata categories), drafts the reply and the contractor dispatch, and grounds both in the building's own documents. **Nothing is sent until a logged-in staff member approves it.** A **Chief of Staff** agent sits above all 16 buildings. It writes the portfolio brief and answers questions across the portfolio.
+An AI command hub for Ikon Strata Management (Perth, WA). Each strata plan has its own **building agent**. The agent has an email address, an inbox, files, contacts, work orders, memory and an activity log (its "computer"). It triages every inbound message (P1/P2/P3 across 12 WA strata categories), drafts the reply and the contractor dispatch, and grounds both in the building's own documents. **Nothing is sent until a logged-in staff member approves it.** A **Chief of Staff** agent sits above all 16 buildings. It writes the portfolio brief and answers questions across the portfolio.
 
 Everything runs on Cloudflare:
 - **Compute:** one Worker. Each building is a Durable Object (Agents SDK) with its own SQLite and full-text index.
@@ -21,8 +21,8 @@ See [`DEMO.md`](DEMO.md) for the 10-minute demo script, [`PLAN.md`](PLAN.md) for
 | Chief of Staff | Portfolio-wide chat ("What needs my attention today?") |
 | Building → Inbox | Threads with triage (priority, category, who is responsible and why), approval cards and the conversation |
 | Building → Work orders | Kanban of work orders with contractor and make-safe deadline |
-| Building → Vault | Documents in the Master File Structure folders (01 Plan & By-laws … 08 Sales & Disclosure) with full-text search |
-| Building → Agent | Chat with the building agent, grounded in the vault, with citations |
+| Building → Files | Documents in the Master File Structure folders (01 Plan & By-laws … 08 Sales & Disclosure) with full-text search, and import from OneDrive or SharePoint |
+| Building → Agent | Chat with the building agent, grounded in its files, with citations |
 | Building → Computer | The agent's live activity feed, memory notes and current AI engine |
 | Building → Contacts | Owners, council, tenants/PMs, contractors, insurer |
 
@@ -51,7 +51,7 @@ Sign in with the `HUB_PASSCODE` from `.dev.vars` and any name. The pilot buildin
 
 ```bash
 npm run typecheck   # app, worker and test tsconfigs
-npm test            # 191 tests in workerd (vitest + @cloudflare/vitest-plugin)
+npm test            # 212 tests in workerd (vitest + @cloudflare/vitest-plugin)
 ```
 
 The tests cover:
@@ -60,7 +60,7 @@ The tests cover:
 - approvals, including double-approve and edits;
 - prompt injection;
 - email threading and duplicate deliveries;
-- the vault and search;
+- files, search and the OneDrive import;
 - the email handler;
 - work orders, contacts and memory;
 - the Chief of Staff;
@@ -98,11 +98,18 @@ To sign everyone out, rotate `SESSION_SECRET`. For anything beyond a demo, put t
 
 Models used with Claude: `MODEL_AGENT` (claude-sonnet-5-5) for drafting and chat, and `MODEL_TRIAGE` (claude-haiku-5-5) for triage.
 
-**The AI switch.** Signed-in staff can turn AI off and on from the bottom of the sidebar, without a redeploy.
-- Off is the rules engine and templates.
-- On is whatever `LLM_PROVIDER` resolves to.
-- It is stored in the Chief of Staff agent (`worker/ai/switch.ts`), so every building agent follows it.
-- It only appears when the deployment has an engine to switch on. For the demo, deploy with `--var LLM_PROVIDER:workers-ai` and use the switch.
+**The AI switch.** Signed-in staff pick the engine at the bottom of the sidebar, without a redeploy:
+- **Off:** the rules engine and templates.
+- **Llama:** Workers AI. It needs the `AI` binding, which is already configured.
+- **Claude:** needs an `ANTHROPIC_API_KEY` secret, or the three AI Gateway secrets. Until then it shows greyed out.
+
+The choice is stored in the Chief of Staff agent (`worker/ai/switch.ts`), so every building agent follows it. Until someone picks, `LLM_PROVIDER` applies.
+
+To turn on Claude: get a key at console.anthropic.com (prepaid credits). Then go to Cloudflare dashboard → Workers & Pages → **ikonsm** → Settings → Variables and Secrets → Add → type **Secret**, name `ANTHROPIC_API_KEY`. Pick **Claude** on the switch.
+
+**Costs.**
+- **Llama:** Workers AI includes 10,000 neurons a day free, then $0.011 per 1,000 neurons on the Workers Paid plan. A busy test day (126 AI calls) came to about 14,000 neurons: about 4 US cents.
+- **Claude:** Haiku 5.5 for triage ($0.10 / $0.50 per million input / output tokens) and Sonnet 5.5 for drafting and chat ($2 / $10). That's roughly a tenth of a cent to triage an email and a few cents to draft one.
 
 **Demo scenario.** **Simulate inbound → Load demo scenario** (`POST /api/demo/load`) replaces the simulated messages at SP 26707 and three other buildings with a few days of SAMPLE activity (`worker/seed/demo.ts`). It always uses the rules engine, and **Clear simulated messages** (`POST /api/demo/clear`) removes it everywhere.
 
@@ -132,7 +139,16 @@ The Computer tab and every approval card show which engine and model produced ea
 
 ### Real email
 
-Each building receives mail at `sp<plan number>@<EMAIL_DOMAIN>`, for example `sp26707@ikon.example.com`. `hub@` and `cos@` go to the Chief of Staff.
+Each building receives mail at `sp<plan number>@<EMAIL_DOMAIN>`, for example `sp26707@agent.ikonsm.com.au`. `hub@` and `cos@` go to the Chief of Staff.
+
+**agent.ikonsm.com.au.**
+- Ikon's main mail stays on Microsoft 365. Only the `agent.` subdomain gets new mail records.
+- ikonsm.com.au is on Cloudflare, but in Ikon's Cloudflare account, not the one this Worker runs in.
+- Email Routing can only hand mail to a Worker in the same account as the domain. So either:
+  - Ikon invites this account's owner to their Cloudflare account and the hub is deployed there; or
+  - Ikon's admin follows the steps below in their account, with the hub deployed there.
+
+**Approved emails** go out as plain text plus a branded HTML version (`shared/email-html.ts`). The logo is loaded from `PUBLIC_URL/brand/email-logo.png`. Drafts in the hub have a **Preview email** button that shows the same HTML.
 
 **Inbound (Email Routing).** This changes MX records, so use a **subdomain** that has no mailboxes today, e.g. `hub.<your-domain>`.
 1. Dashboard → the zone → **Email → Email Routing → Enable** for the subdomain.
@@ -144,6 +160,21 @@ Each building receives mail at `sp<plan number>@<EMAIL_DOMAIN>`, for example `sp
 2. Add the SPF and DKIM records it shows.
 
 Approved replies are sent from the building's own address with proper threading headers. Recipients are restricted to the thread's sender or the building's contacts. Until sending is set up, approving a draft records the send as failed and nothing leaves the system.
+
+## OneDrive and SharePoint
+
+**Files → Connect to OneDrive** signs in to Microsoft 365 once for the whole hub. After that, staff can browse OneDrive ("My files") or SharePoint document libraries and import files into a building's folders. Imported files are text-indexed like uploads and labelled "(from OneDrive)".
+
+Setup (an Ikon Microsoft 365 admin, about 5 minutes; the app shows these steps too):
+1. Microsoft Entra admin centre → App registrations → **New registration**.
+   - Name it "IKON SM Command Hub".
+   - Supported accounts: any organisational directory and personal Microsoft accounts.
+2. Add a **Web** redirect URI: `https://<hub host>/api/integrations/onedrive/callback`.
+3. Certificates & secrets → **New client secret**.
+4. API permissions → Microsoft Graph → **Delegated**: `Files.Read.All`, `Sites.Read.All`, `User.Read`, `offline_access`.
+5. Add the Application (client) ID and the secret as Worker secrets `MS_CLIENT_ID` and `MS_CLIENT_SECRET`. Optionally set `MS_TENANT` to Ikon's tenant ID to accept only Ikon accounts.
+
+Tokens are encrypted at rest in R2 (AES-GCM, key derived from `SESSION_SECRET`) and never reach the browser. The hub only reads from Microsoft 365; it never writes there.
 
 ## Safety model
 
@@ -164,7 +195,7 @@ Approved replies are sent from the building's own address with proper threading 
 
 ## Loading real building data
 
-1. **Vault → upload.** PDF, DOCX, HTML, email (.eml) and plain-text files (TXT, MD, CSV and similar) are text-indexed; other types are stored with metadata only.
+1. **Files → Connect to OneDrive** imports straight from OneDrive or SharePoint (setup below), or **Files → upload**. PDF, DOCX, HTML, email (.eml) and plain-text files (TXT, MD, CSV and similar) are text-indexed; other types are stored with metadata only.
    - Choose the Master File Structure folder for each file.
    - Mark company-wide policies as **Ikon company policies**.
 2. **Contacts:** replace the SAMPLE owners, council and contractors.
@@ -182,7 +213,8 @@ worker/
   agents/             PropertyAgent (one per building), ChiefOfStaffAgent
   ai/                 provider selection, triage (rules + model), drafting, agent loop, Workers AI
   email/              address routing, inbound parsing, outbound send
-  docs/               text extraction, chunking, R2 vault
+  docs/               text extraction, chunking, R2 file storage
+  integrations/       Microsoft 365 (OneDrive / SharePoint) sign-in, Graph browse and import
   seed/               portfolio, SP 26707 SAMPLE records, Ikon policies
 shared/               types shared by worker and UI
 src/                  React SPA (Vite + Tailwind)

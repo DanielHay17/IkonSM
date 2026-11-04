@@ -280,7 +280,7 @@ export interface ApprovalDecision {
 }
 
 // ---------------------------------------------------------------------------
-// Documents (vault)
+// Documents (the Files tab; "vault" internally)
 // ---------------------------------------------------------------------------
 
 export const VAULT_FOLDERS = [
@@ -329,6 +329,68 @@ export interface SearchHit {
   score: number;
   /** Who added the document ("seed", a staff name, or "email:<sender>" for an emailed attachment). */
   uploadedBy?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Microsoft 365 import (OneDrive and SharePoint document libraries)
+// ---------------------------------------------------------------------------
+
+/** Where the picker starts: the signed-in account's own OneDrive, or the SharePoint sites it can reach. */
+export type OneDriveSource = "me" | "sites";
+
+export interface OneDriveAccount {
+  name: string;
+  email: string | null;
+}
+
+/** configured = the Worker has MS_CLIENT_ID and MS_CLIENT_SECRET; connected = a Microsoft account is signed in. */
+export interface OneDriveStatus {
+  configured: boolean;
+  connected: boolean;
+  account?: OneDriveAccount;
+}
+
+/** site = a SharePoint site; drive = a document library (or a OneDrive); folder and file are drive items. */
+export type OneDriveItemKind = "site" | "drive" | "folder" | "file";
+
+export interface OneDriveItem {
+  id: string;
+  /** The drive the item is in (for a drive, its own id); null for sites. */
+  driveId: string | null;
+  siteId?: string;
+  name: string;
+  kind: OneDriveItemKind;
+  size: number | null;
+  mimeType: string | null;
+  modified: string | null;
+  webUrl: string | null;
+  /** Folders only: how many items are inside. */
+  childCount: number | null;
+}
+
+export interface OneDriveListing {
+  items: OneDriveItem[];
+  /** True when there were more items than the hub lists at once. */
+  truncated: boolean;
+}
+
+export interface OneDriveItemRef {
+  driveId: string;
+  itemId: string;
+}
+
+export type OneDriveImportStatus = "imported" | "skipped" | "failed";
+
+export interface OneDriveImportResult extends OneDriveItemRef {
+  status: OneDriveImportStatus;
+  name: string | null;
+  /** Why it was skipped or failed; null when imported. */
+  reason: string | null;
+  docId: string | null;
+}
+
+export interface OneDriveImportResponse {
+  results: OneDriveImportResult[];
 }
 
 // ---------------------------------------------------------------------------

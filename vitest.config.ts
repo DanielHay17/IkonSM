@@ -10,9 +10,19 @@ export default defineConfig({
       remoteBindings: false,
       // ANTHROPIC_API_KEY and CF_AIG_TOKEN are forced empty so tests always use the rules/template engines,
       // even if .dev.vars has a key or an AI Gateway token (LLM_PROVIDER "auto" then resolves to off).
+      // The Microsoft 365 app is forced off too; test/onedrive.spec.ts switches it on in an env view.
       // EMAIL_DOMAIN stays on the reserved test domain whatever the deployed one is.
       miniflare: {
-        bindings: { HUB_PASSCODE: "test-passcode-1234", SESSION_SECRET: "test-secret", ANTHROPIC_API_KEY: "", CF_AIG_TOKEN: "", EMAIL_DOMAIN: "ikon.example.com" },
+        bindings: {
+          HUB_PASSCODE: "test-passcode-1234",
+          SESSION_SECRET: "test-secret",
+          ANTHROPIC_API_KEY: "",
+          CF_AIG_TOKEN: "",
+          MS_CLIENT_ID: "",
+          MS_CLIENT_SECRET: "",
+          MS_TENANT: "",
+          EMAIL_DOMAIN: "ikon.example.com",
+        },
       },
     }),
   ],

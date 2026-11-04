@@ -21,6 +21,9 @@ interface __BaseEnv_Env {
 	CF_ACCOUNT_ID: string;
 	AI_GATEWAY_ID: string;
 	CF_AIG_TOKEN: string;
+	MS_CLIENT_ID: string;
+	MS_CLIENT_SECRET: string;
+	MS_TENANT: string;
 	PropertyAgent: DurableObjectNamespace<import("./worker/index").PropertyAgent>;
 	ChiefOfStaffAgent: DurableObjectNamespace<import("./worker/index").ChiefOfStaffAgent>;
 }
@@ -36,7 +39,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "APP_NAME" | "COMPANY_NAME" | "EMAIL_DOMAIN" | "PUBLIC_URL" | "LLM_PROVIDER" | "WORKERS_AI_MODEL" | "MODEL_AGENT" | "MODEL_TRIAGE" | "AUTH_REQUIRED" | "HUB_PASSCODE" | "SESSION_SECRET" | "ANTHROPIC_API_KEY" | "CF_ACCOUNT_ID" | "AI_GATEWAY_ID" | "CF_AIG_TOKEN">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "APP_NAME" | "COMPANY_NAME" | "EMAIL_DOMAIN" | "PUBLIC_URL" | "LLM_PROVIDER" | "WORKERS_AI_MODEL" | "MODEL_AGENT" | "MODEL_TRIAGE" | "AUTH_REQUIRED" | "HUB_PASSCODE" | "SESSION_SECRET" | "ANTHROPIC_API_KEY" | "CF_ACCOUNT_ID" | "AI_GATEWAY_ID" | "CF_AIG_TOKEN" | "MS_CLIENT_ID" | "MS_CLIENT_SECRET" | "MS_TENANT">> {}
 }
 declare module "*.txt" {
 	const value: string;

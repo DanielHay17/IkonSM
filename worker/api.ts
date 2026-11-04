@@ -20,8 +20,9 @@ import {
 import type { PropertyAgent } from "./agents/property-agent";
 import { CHIEF_OF_STAFF_NAME, engineAvailable } from "./ai/switch";
 import { authRoutes, requireStaff, sessionWithSwitch, staffFromRequest } from "./auth";
-import { extractText } from "./docs/extract";
-import { guessMime, r2KeyFor } from "./docs/vault";
+import { deleteVaultObject, fileStaffDocument, MAX_UPLOAD_BYTES, type VaultFolder } from "./docs/filing";
+import { CALLBACK_PATH } from "./integrations/onedrive-oauth";
+import { importFromOneDrive, onedriveRoutes } from "./integrations/onedrive-routes";
 import {
   apiResponseHeaders,
   badRequest,
@@ -31,9 +32,10 @@ import {
   notFound,
   readJson,
   requestGuard,
+  requireBrowserOrigin,
   validate,
   type AppEnv,
-  type AppVariables,
+  type PropertyEnv,
 } from "./http";
 import { DEMO_SCENARIO } from "./seed/demo";
 import { PORTFOLIO_IDS } from "./seed/portfolio";
@@ -42,21 +44,18 @@ import { PORTFOLIO_IDS } from "./seed/portfolio";
 // Limits and constants
 // ---------------------------------------------------------------------------
 
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
 const MAX_JSON_BYTES = 256 * 1024;
 const DEFAULT_FOLDER = "07 Correspondence" satisfies VaultFolder;
 
 
-const PUBLIC_API_PATHS = new Set(["/api/health", "/api/session", "/api/login"]);
+/** No session needed. The OAuth callback is a top-level redirect from Microsoft and checks the session itself. */
+const PUBLIC_API_PATHS = new Set(["/api/health", "/api/session", "/api/login", CALLBACK_PATH]);
 const UPLOAD_PATH = /^\/api\/properties\/[^/]+\/docs$/;
 const PROPERTY_ID = /^sp-\d{3,6}$/;
 const RECORD_ID = /^[\w.:-]{1,100}$/;
 const KNOWN_PROPERTY_IDS = new Set(PORTFOLIO_IDS);
 
-type VaultFolder = (typeof VAULT_FOLDERS)[number];
-type PropertyStub = DurableObjectStub<PropertyAgent>;
-type PropertyEnv = { Bindings: Env; Variables: AppVariables & { propertyId: string; agent: PropertyStub } };
 type AgentRouteGuard = NonNullable<AgentOptions<Env>["onBeforeConnect"]>;
 
 // ---------------------------------------------------------------------------
@@ -352,33 +351,22 @@ property.post("/docs", async (c) => {
     throw new HTTPException(413, { message: `Files must be ${formatBytes(MAX_UPLOAD_BYTES)} or smaller` });
   }
 
-  const folder = vaultFolder(form.get("folder"));
-  const name = displayFileName(file.name);
-  const mimeType = guessMime(name, file.type);
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const extracted = await extractText(bytes, mimeType, name);
-  if (extracted.error) console.warn(`Text extraction failed for "${name}" (${extracted.method}): ${extracted.error}`);
-
   const { propertyId, agent, staffName } = c.var;
-  const r2Key = r2KeyFor(propertyId, folder, name);
-  await c.env.VAULT.put(r2Key, bytes, { httpMetadata: { contentType: mimeType }, customMetadata: { propertyId } });
-  try {
-    const doc = await agent.addDocument(
-      { folder, name, mimeType, size: bytes.byteLength, r2Key, scope: "building", sample: false, uploadedBy: staffName },
-      extracted.text,
-    );
-    return c.json(doc, 201);
-  } catch (err) {
-    await deleteVaultObject(c.env, r2Key);
-    throw err;
-  }
+  const doc = await fileStaffDocument(c.env, propertyId, agent, {
+    folder: vaultFolder(form.get("folder")),
+    name: file.name,
+    mimeType: file.type,
+    bytes: new Uint8Array(await file.arrayBuffer()),
+    uploadedBy: staffName,
+  });
+  return c.json(doc, 201);
 });
 
 property.get("/docs/:docId/download", async (c) => {
   const doc = await c.var.agent.getDocument(recordId(c.req.param("docId")));
   if (!doc || !isOwnKey(c.var.propertyId, doc.meta.r2Key)) throw notFound("Document not found");
   const object = await c.env.VAULT.get(doc.meta.r2Key);
-  if (!object) throw notFound("The file is missing from the vault");
+  if (!object) throw notFound("The file is missing from storage");
 
   return new Response(object.body, {
     headers: {
@@ -403,6 +391,9 @@ property.delete("/docs/:docId", async (c) => {
   if (isOwnKey(c.var.propertyId, doc.r2Key)) await deleteVaultObject(c.env, doc.r2Key);
   return c.json({ ok: true });
 });
+
+/** Files chosen in the OneDrive / SharePoint picker, downloaded by the Worker and filed like an upload. */
+property.post("/integrations/onedrive/import", requireBrowserOrigin, importFromOneDrive);
 
 property.get("/search", async (c) => {
   const { q, limit } = validate(searchQuery, c.req.query());
@@ -546,6 +537,10 @@ api.post("/demo/clear", async (c) => {
   return c.json({ buildings: results.filter((r) => r.threads > 0) });
 });
 
+// Microsoft 365 (OneDrive and SharePoint) ------------------------------------
+
+api.route("/integrations/onedrive", onedriveRoutes);
+
 api.route("/properties/:id", property);
 
 // ---------------------------------------------------------------------------
@@ -600,27 +595,7 @@ function vaultFolder(value: File | string | null): VaultFolder {
   return folder;
 }
 
-/** The name shown in the vault: the original file name without any path or control characters. */
-function displayFileName(raw: string): string {
-  const base = raw.split(/[/\\]/).pop() ?? "";
-  const clean = base
-    .normalize("NFC")
-    .replace(/[\u0000-\u001f\u007f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return clean.slice(0, 200) || "upload";
-}
-
 /** Vault keys are prefixed with the property id; never touch another building's objects. */
 function isOwnKey(propertyId: string, r2Key: string): boolean {
   return r2Key.startsWith(`${propertyId}/`);
-}
-
-/** The index entry is already gone; an orphaned object only costs storage, so log instead of failing. */
-async function deleteVaultObject(env: Env, r2Key: string): Promise<void> {
-  try {
-    await env.VAULT.delete(r2Key);
-  } catch (err) {
-    console.error(`Could not delete vault object ${r2Key}:`, err);
-  }
 }

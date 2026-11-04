@@ -73,6 +73,17 @@ export function guessMime(filename: string, provided?: string | null): string {
   return MIME_BY_EXTENSION[extensionOf(filename)] ?? "application/octet-stream";
 }
 
+/** The name shown on the Files tab: the original file name without any path or control characters. */
+export function displayFileName(raw: string): string {
+  const base = raw.split(/[/\\]/).pop() ?? "";
+  const clean = base
+    .normalize("NFC")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return clean.slice(0, 200) || "upload";
+}
+
 /** Lower-case extension without the dot, or "" when there is none. */
 export function extensionOf(filename: string): string {
   const base = (filename ?? "").split(/[/\\]/).pop() ?? "";

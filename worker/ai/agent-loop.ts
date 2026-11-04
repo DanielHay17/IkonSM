@@ -95,7 +95,7 @@ const TOOL_DEFS = {
   search_documents: {
     name: "search_documents",
     description:
-      "Full-text search of this building's document vault (by-laws, insurance, emergency procedures, minutes, budgets, contractor lists, Ikon policy). Returns excerpts with doc ids, names and folders. Use specific keywords, e.g. \"water main stop cock\" or \"after hours plumber\".",
+      "Full-text search of this building's files (by-laws, insurance, emergency procedures, minutes, budgets, contractor lists, Ikon policy). Returns excerpts with doc ids, names and folders. Use specific keywords, e.g. \"water main stop cock\" or \"after hours plumber\".",
     input_schema: {
       type: "object",
       properties: {
