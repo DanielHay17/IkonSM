@@ -19,17 +19,18 @@ import { useBuilding } from "./BuildingContext";
 const FEED_LIMIT = 200;
 const STICK_TO_BOTTOM_PX = 48;
 
+// Tags in the brand's white, silver and warm grey; only errors are coloured.
 const KINDS: Record<ActivityKind, { tag: string; color: string }> = {
-  email_in: { tag: "EMAIL IN", color: "text-sky-300" },
-  message_in: { tag: "MSG IN", color: "text-sky-300" },
-  triage: { tag: "TRIAGE", color: "text-amber-300" },
-  tool: { tag: "TOOL", color: "text-violet-300" },
+  email_in: { tag: "EMAIL IN", color: "text-white" },
+  message_in: { tag: "MSG IN", color: "text-white" },
+  triage: { tag: "TRIAGE", color: "text-silver" },
+  tool: { tag: "TOOL", color: "text-charcoal-muted" },
   draft: { tag: "DRAFT", color: "text-white" },
-  approval: { tag: "APPROVAL", color: "text-emerald-300" },
-  email_out: { tag: "EMAIL OUT", color: "text-emerald-300" },
-  ticket: { tag: "TICKET", color: "text-orange-300" },
-  doc: { tag: "DOC", color: "text-slate-300" },
-  memory: { tag: "MEMORY", color: "text-pink-300" },
+  approval: { tag: "APPROVAL", color: "text-silver" },
+  email_out: { tag: "EMAIL OUT", color: "text-white" },
+  ticket: { tag: "TICKET", color: "text-silver" },
+  doc: { tag: "DOC", color: "text-charcoal-muted" },
+  memory: { tag: "MEMORY", color: "text-charcoal-muted" },
   chat: { tag: "CHAT", color: "text-silver" },
   error: { tag: "ERROR", color: "text-red-400" },
   system: { tag: "SYSTEM", color: "text-charcoal-muted" },
@@ -61,11 +62,7 @@ function ActivityTerminal({ events, loading, error, onRetry }: { events: Activit
   return (
     <section data-surface="dark" aria-labelledby="terminal-title" className="overflow-hidden rounded-xl bg-charcoal shadow-pop ring-1 ring-charcoal">
       <div className="flex items-center gap-3 border-b border-white/10 bg-charcoal-800 px-4 py-2.5">
-        <span aria-hidden="true" className="flex gap-1.5">
-          <span className="size-2.5 rounded-full bg-[#ff5f57]/80" />
-          <span className="size-2.5 rounded-full bg-[#febc2e]/80" />
-          <span className="size-2.5 rounded-full bg-[#28c840]/80" />
-        </span>
+        <span aria-hidden="true" className="h-px w-5 shrink-0 bg-taupe" />
         <h2 id="terminal-title" className="min-w-0 flex-1 truncate font-mono text-xs text-charcoal-text">
           {propertyId.replace(/^sp-/i, "SP ")} · agent activity
         </h2>
@@ -80,7 +77,7 @@ function ActivityTerminal({ events, loading, error, onRetry }: { events: Activit
         {loading && events.length === 0 ? (
           <div className="space-y-2" aria-label="Loading activity" role="status">
             {Array.from({ length: 10 }, (_, i) => (
-              <Skeleton key={i} className={cx("h-3 bg-white/5!", i % 3 === 0 ? "w-2/3" : "w-full")} />
+              <Skeleton key={i} tone="onDark" className={cx("h-3", i % 3 === 0 ? "w-2/3" : "w-full")} />
             ))}
           </div>
         ) : error && events.length === 0 ? (
@@ -152,7 +149,7 @@ function StatusCard({ threads }: { threads: Thread[] | undefined }) {
   const rows: [string, ReactNode][] = [
     ["AI", <AiStatusPill key="ai" online={aiOnline} ai={ai} />],
     ["Provider", <span key="p">{provider ? PROVIDER_NAMES[provider] : "Unknown"}</span>],
-    ["Model", <span key="m" className="font-mono text-xs">{ai?.model ?? (aiOnline ? "-" : "None (rules engine)")}</span>],
+    ["Model", <span key="m" className="text-xs [overflow-wrap:anywhere]">{ai?.model ?? (aiOnline ? "-" : "None (rules engine)")}</span>],
     ...(ai?.note ? ([["Setup", <span key="n" className="text-xs whitespace-normal" title={ai.note}>{ai.note}</span>]] as [string, ReactNode][]) : []),
     ["Last triage", <span key="t" className="text-xs">{lastTriage ?? "No triage run yet"}</span>],
     ["Status", busy ? <span key="s" className="font-medium text-accent-strong">Working: {busy.label ?? "busy"}</span> : <span key="s">Idle</span>],
@@ -201,7 +198,7 @@ function FilesCard({ docs, loading }: { docs: DocMeta[] | undefined; loading: bo
               <li key={folder} className="text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-ink-soft">{folder}</span>
-                  <span className="font-mono text-muted tabular-nums">{n}</span>
+                  <span className="font-medium text-muted tabular-nums">{n}</span>
                 </div>
                 <div className="mt-1 h-1.5 bg-sunken" aria-hidden="true">
                   <div className="h-full bg-accent" style={{ width: `${(n / max) * 100}%` }} />
@@ -296,10 +293,9 @@ function MemoryCard() {
                 icon="trash"
                 label="Delete note"
                 size="xs"
-                variant="dangerGhost"
+                variant="dangerQuiet"
                 loading={removing === note.id}
                 onClick={() => remove(note)}
-                className="opacity-70 group-hover:opacity-100 focus-visible:opacity-100"
               />
             </li>
           ))}

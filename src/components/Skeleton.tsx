@@ -1,7 +1,16 @@
 import { cx } from "../lib/cx";
 
-export function Skeleton({ className }: { className?: string }) {
-  return <div aria-hidden="true" className={cx("animate-pulse rounded-md bg-sunken", className)} />;
+/** Where the skeleton sits: on white or the page (default), inside a grey well (board columns), or on charcoal. */
+export type SkeletonTone = "default" | "onSunken" | "onDark";
+
+const TONES: Record<SkeletonTone, string> = {
+  default: "bg-sunken",
+  onSunken: "bg-surface",
+  onDark: "bg-white/5",
+};
+
+export function Skeleton({ className, tone = "default" }: { className?: string; tone?: SkeletonTone }) {
+  return <div aria-hidden="true" className={cx("animate-pulse rounded-md", TONES[tone], className)} />;
 }
 
 /** A few lines of placeholder text. */

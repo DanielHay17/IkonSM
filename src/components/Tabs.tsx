@@ -16,8 +16,16 @@ export interface TabItem<K extends string> {
 export function TabNav<K extends string>({ items, active, label }: { items: TabItem<K>[]; active: K; label: string }) {
   const navRef = useRef<HTMLElement>(null);
   // On a narrow screen the strip scrolls sideways: keep the current tab in view (deep links, reloads).
+  // Scroll the strip itself, not scrollIntoView: that would also move the browser's starting point
+  // for Tab, so the first Tab press would skip the skip link, the sidebar and the header.
   useEffect(() => {
-    navRef.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ inline: "nearest", block: "nearest" });
+    const nav = navRef.current;
+    const current = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!nav || !current || nav.scrollWidth <= nav.clientWidth) return;
+    const strip = nav.getBoundingClientRect();
+    const tab = current.getBoundingClientRect();
+    if (tab.left < strip.left) nav.scrollLeft += tab.left - strip.left - 16;
+    else if (tab.right > strip.right) nav.scrollLeft += tab.right - strip.right + 16;
   }, [active]);
   return (
     <nav ref={navRef} aria-label={label} className="-mx-4 overflow-x-auto px-4 scrollbar-thin sm:mx-0 sm:px-0">

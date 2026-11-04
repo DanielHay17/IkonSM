@@ -82,11 +82,30 @@ export function columnKeyboardCoordinates(order: readonly UniqueIdentifier[], co
   };
 }
 
-/** The column under the pointer; otherwise (keyboard drags, or a pointer in the gap between columns) the one the card overlaps most. */
-export const boardCollisions: CollisionDetection = (args) => {
-  const hits = pointerWithin(args);
-  return hits.length ? hits : rectIntersection(args);
-};
+/**
+ * The column under the pointer; otherwise (keyboard drags, or a pointer in the gap between columns)
+ * the one the card overlaps most. A pointer outside the board drops nowhere, so releasing a card
+ * off the board cancels the move. `visibleArea` is the board's scroll container: columns scrolled
+ * out of view don't widen the board's outline into the sidebar.
+ */
+export function boardCollisions(visibleArea: () => Element | null): CollisionDetection {
+  return (args) => {
+    const hits = pointerWithin(args);
+    if (hits.length) return hits;
+    const pointer = args.pointerCoordinates;
+    if (pointer) {
+      const rects = [...args.droppableRects.values()];
+      if (!rects.length) return [];
+      const area = visibleArea()?.getBoundingClientRect();
+      const left = Math.max(Math.min(...rects.map((r) => r.left)), area?.left ?? -Infinity);
+      const right = Math.min(Math.max(...rects.map((r) => r.right)), area?.right ?? Infinity);
+      const top = Math.min(...rects.map((r) => r.top));
+      const bottom = Math.max(...rects.map((r) => r.bottom));
+      if (pointer.x < left || pointer.x > right || pointer.y < top || pointer.y > bottom) return [];
+    }
+    return rectIntersection(args);
+  };
+}
 
 export function useBoardSensors(coordinateGetter: KeyboardCoordinateGetter, reducedMotion: boolean) {
   const keyboard = useMemo(() => ({ coordinateGetter, scrollBehavior: reducedMotion ? ("auto" as const) : ("smooth" as const) }), [coordinateGetter, reducedMotion]);
@@ -128,7 +147,9 @@ function GripDots({ className }: { className?: string }) {
  * `decorative` renders a look-alike for the drag overlay.
  */
 export function DragHandle({ label, decorative, className, ...rest }: ComponentPropsWithRef<"button"> & { label: string; decorative?: boolean }) {
-  const classes = cx("-ml-1 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted", className);
+  // The focus ring hugs the grip (offset 0) so it doesn't cover the work-order number beside it;
+  // on touch screens the grip grows to a comfortable target.
+  const classes = cx("-ml-1 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted pointer-coarse:size-10", className);
   if (decorative) {
     return (
       <span aria-hidden="true" className={cx(classes, "cursor-grabbing")}>
@@ -142,7 +163,7 @@ export function DragHandle({ label, decorative, className, ...rest }: ComponentP
       {...{ [HANDLE_ATTR]: "" }}
       aria-label={label}
       title="Drag to another column, or press Space to pick up"
-      className={cx(classes, "cursor-grab transition-colors hover:bg-ink/5 hover:text-ink aria-disabled:cursor-not-allowed aria-disabled:opacity-50")}
+      className={cx(classes, "cursor-grab transition-colors hover:bg-ink/5 hover:text-ink focus-visible:outline-offset-0 aria-disabled:cursor-not-allowed aria-disabled:opacity-50")}
       {...rest}
     >
       <GripDots className="size-3.5" />

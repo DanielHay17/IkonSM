@@ -168,7 +168,7 @@ worker/
   seed/               portfolio, SP 26707 SAMPLE records, Ikon policies
 shared/               types shared by worker and UI
 src/                  React SPA (Vite + Tailwind)
-public/               favicon, app icon and the IKON SM logos (public/brand/)
+public/               favicon and app icon (the logos are bundled from src/assets/brand/)
 test/                 vitest specs running in workerd
 ```
 
@@ -177,5 +177,6 @@ test/                 vitest specs running in workerd
 The UI follows the IKON SM website (ikonsm.com.au): monochrome charcoal, white and light grey, with silver and taupe accents. Corners are sharp, and headings are wide and uppercase.
 
 - **Tokens:** colours, fonts and radii live in the `@theme` block of `src/index.css`. Primary actions, focus rings and selected states all use the charcoal `accent`. The `charcoal-*` tokens are for dark surfaces such as the sidebar.
-- **Type:** Poppins for body and UI text. Headings use the `heading-display` utility in `--font-display`, which is Archivo Expanded, a free stand-in for the website's licensed Agrandir. If Ikon provides an Adobe Fonts kit, change the family in `--font-display` and the font link in `index.html`.
-- **Logo:** `public/brand/ikonsm-logo-reversed.png` (white, for charcoal) and `ikonsm-logo-dark.png` (charcoal, for light surfaces), rendered by `Logo` in `src/components/Wordmark.tsx`. Serve them from `public/`; never hotlink the website's Squarespace files.
+- **Colour:** the semantic colours are kept for meaning only: red for P1 and errors, amber for P2 and for SAMPLE-data and other "check this" warnings, green for done. Everyday states, such as "Awaiting approval", stay monochrome.
+- **Type:** Poppins for body and UI text, including emails and work-order numbers (with tabular figures). Headings, and the labels of action buttons (size md and up), use the `heading-display` utility in `--font-display`, which is Archivo Expanded at weight 800, a free stand-in for the website's licensed Agrandir. If Ikon provides an Adobe Fonts kit, change the family in `--font-display` and the font link in `index.html`. JetBrains Mono is only for the Computer tab's terminal. Dialog titles that show data (a file or person's name) pass `plainTitle` to `Modal`, so they keep their own case.
+- **Logo:** `src/assets/brand/ikonsm-logo-reversed.webp` (white, for charcoal) and `ikonsm-logo-dark.webp` (charcoal, for light surfaces), 480 px wide, rendered by `Logo` in `src/components/Wordmark.tsx`. Vite bundles them with hashed names. The 1500 px masters are in `docs/brand/`. Never hotlink the website's Squarespace files.

@@ -242,7 +242,7 @@ function DocRow({ doc, onView, onDelete, showFolder }: { doc: DocMeta; onView: (
         <Icon name="file" className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
-        <button type="button" onClick={onView} className="line-clamp-2 max-w-full text-left text-sm font-medium break-words text-ink hover:text-accent hover:underline">
+        <button type="button" onClick={onView} className="line-clamp-2 max-w-full text-left text-sm font-medium break-words link-brand">
           {doc.name}
         </button>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -262,7 +262,7 @@ function DocRow({ doc, onView, onDelete, showFolder }: { doc: DocMeta; onView: (
         <a href={api.docDownloadUrl(propertyId, doc.id)} download className={buttonClasses("ghost", "sm", "w-8 px-0")} aria-label={`Download ${doc.name}`} title="Download">
           <Icon name="download" className="size-4" />
         </a>
-        <IconButton icon="trash" label={`Delete ${doc.name}`} variant="dangerGhost" onClick={onDelete} />
+        <IconButton icon="trash" label={`Delete ${doc.name}`} variant="dangerQuiet" onClick={onDelete} />
       </div>
     </li>
   );
@@ -319,6 +319,7 @@ function DocViewer({
       placement="right"
       size="lg"
       title={meta?.name ?? "Document"}
+      plainTitle
       description={
         meta ? (
           <span className="mt-1 flex flex-wrap items-center gap-1.5">

@@ -7,11 +7,10 @@
    */
   --font-sans: "Poppins", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-display: "Archivo", "Arial Black", "Helvetica Neue", Arial, sans-serif;
-  --font-display--font-variation-settings: "wdth" 125;
+  /* Only the Computer tab's terminal uses the mono face; data (emails, numbers) stays in Poppins. */
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   /* Brand palette (monochrome, as on the website) */
-  --color-brand: #292929;
   --color-silver: #d2d4d5;
   /* Taupe is 3.9:1 on white: rules, icons and accents only. Use taupe-ink for text. */
   --color-taupe: #848079;
@@ -28,13 +27,12 @@
   --color-muted: #666666;
   --color-line: #e4e5e6;
   --color-line-strong: #d2d4d5;
-  /* Form-control and outline-button borders: 3:1 against white. */
-  --color-line-input: #929496;
+  /* Form-control and outline-button borders: 3:1 or more on white, the page and the sunken grey. */
+  --color-line-input: #848688;
 
   /* Charcoal brand surface: sidebar, mobile bar, login hero, terminal */
   --color-charcoal: #292929;
   --color-charcoal-800: #333333;
-  --color-charcoal-700: #3d3d3d;
   --color-charcoal-text: #d2d4d5;
   --color-charcoal-muted: #b5b2ab;
 
@@ -134,19 +132,25 @@
     font-family: var(--font-sans);
   }
 
-  /* One visible, consistent focus ring for keyboard users. */
+  /*
+   * One visible, consistent focus ring for keyboard users: charcoal, and white on charcoal surfaces
+   * (where charcoal would vanish). In the base layer, so a utility can still override either.
+   */
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }
+  :where([data-surface="dark"]) :focus-visible {
+    outline-color: #ffffff;
+  }
+
+  /* The browser's own clear (x) in search boxes is blue in Chromium: keep it in the monochrome palette. */
+  input[type="search"]::-webkit-search-cancel-button {
+    filter: grayscale(1);
+  }
 
   ::selection {
     background-color: color-mix(in srgb, var(--color-taupe) 30%, transparent);
-  }
-
-  /* The display face is only served at width 125 (Expanded): ask for it explicitly. */
-  .font-display {
-    font-stretch: 125%;
   }
 
   /* Keep the page from scrolling behind an open modal dialog. */
@@ -174,14 +178,6 @@
       scroll-behavior: auto !important;
     }
   }
-}
-
-/*
- * On charcoal surfaces the charcoal focus ring would vanish: switch it to white. Unlayered, so it
- * also wins over focus-visible:outline-accent utilities on buttons inside.
- */
-[data-surface="dark"] :focus-visible {
-  outline-color: #ffffff;
 }
 
 /*

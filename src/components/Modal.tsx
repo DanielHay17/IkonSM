@@ -17,6 +17,11 @@ interface ModalProps {
   size?: ModalSize;
   /** Hide the standard header (e.g. the mobile nav drawer renders its own). */
   bare?: boolean;
+  /**
+   * The title shows data (a file name, a person's name): set it in the body face, as written,
+   * instead of the display caps used for fixed labels like "NEW WORK ORDER".
+   */
+  plainTitle?: boolean;
 }
 
 const SIZES: Record<ModalSize, string> = {
@@ -46,6 +51,7 @@ export function Modal({
   placement = "center",
   size = "md",
   bare = false,
+  plainTitle = false,
 }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -84,7 +90,10 @@ export function Modal({
             <>
               <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4 sm:px-6">
                 <div className="min-w-0">
-                  <h2 id={titleId} className="heading-display text-[15px] leading-6 text-ink">
+                  <h2
+                    id={titleId}
+                    className={cx("text-ink", plainTitle ? "text-base leading-6 font-semibold break-words" : "heading-display text-[15px] leading-6")}
+                  >
                     {title}
                   </h2>
                   {description ? <div className="mt-0.5 text-[13px] text-muted">{description}</div> : null}
@@ -145,7 +154,7 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, description, co
       size="sm"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button variant={destructive ? "danger" : "primary"} loading={busy} onClick={confirm}>

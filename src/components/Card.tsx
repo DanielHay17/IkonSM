@@ -40,17 +40,23 @@ export function PageHeader({
   description,
   actions,
   eyebrow,
+  badge,
 }: {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
   eyebrow?: ReactNode;
+  /** A status chip that belongs with the title (e.g. a count), shown beside it. */
+  badge?: ReactNode;
 }) {
   return (
     <header className="mb-7 flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
         {eyebrow ? <div className="mb-2 text-[13px] text-muted">{eyebrow}</div> : null}
-        <h1 className="heading-display text-[26px] leading-[1.05] text-ink sm:text-[34px]">{title}</h1>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="heading-display text-[26px] leading-[1.05] text-ink sm:text-[34px]">{title}</h1>
+          {badge}
+        </div>
         {description ? <p className="mt-2.5 max-w-2xl text-sm leading-relaxed text-muted">{description}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}

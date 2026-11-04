@@ -172,17 +172,25 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
       title="Simulate inbound message"
       description={
         <>
-          Delivered to {propertyLabel}'s agent{agentEmail ? <> as if sent to <span className="font-mono text-ink-soft">{agentEmail}</span></> : null}. It is
+          Delivered to {propertyLabel}'s agent{agentEmail ? <> as if sent to <span className="font-medium text-ink-soft">{agentEmail}</span></> : null}. It is
           triaged immediately; nothing is sent without approval.
         </>
       }
       size="lg"
       footer={
         <>
-          <Button variant="dangerGhost" icon="trash" onClick={() => setConfirmClear(true)} disabled={submitting} className="mr-auto">
+          {/* A housekeeping action, not part of this message: small and quiet, and last on a phone. */}
+          <Button
+            variant="dangerQuiet"
+            size="sm"
+            icon="trash"
+            onClick={() => setConfirmClear(true)}
+            disabled={submitting}
+            className="order-last w-full sm:order-first sm:mr-auto sm:w-auto"
+          >
             Clear simulated messages
           </Button>
-          <Button variant="ghost" onClick={onClose} disabled={submitting}>
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>
             Cancel
           </Button>
           <Button type="submit" form="simulate-inbound-form" variant="primary" icon="send" loading={submitting}>

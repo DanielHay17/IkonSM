@@ -11,7 +11,7 @@ import {
   type DropAnimation,
   type UniqueIdentifier,
 } from "@dnd-kit/core";
-import { useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   ASSIGNEE_LABELS,
@@ -26,16 +26,15 @@ import {
   type TicketInput,
   type TicketStatus,
 } from "../../../shared/types";
-import { api } from "../../api";
+import { ApiError, api } from "../../api";
 import { DragHandle, boardCollisions, columnKeyboardCoordinates, useBoardSensors, usePrefersReducedMotion } from "../../components/BoardDnd";
-import { Button } from "../../components/Button";
+import { Button, IconButton } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { ErrorState, FormError } from "../../components/EmptyState";
 import { SelectField, TextAreaField, TextField, selectClasses } from "../../components/Field";
 import { Icon } from "../../components/Icon";
 import { Link } from "../../components/Link";
 import { Modal } from "../../components/Modal";
-import { Skeleton } from "../../components/Skeleton";
 import { Spinner } from "../../components/Spinner";
 import { PRIORITY_LABELS, PriorityBadge, TICKET_STATUS_LABELS } from "../../components/StatusBadges";
 import { useToast } from "../../components/Toast";
@@ -43,6 +42,7 @@ import { useResource } from "../../hooks/useResource";
 import { cx } from "../../lib/cx";
 import { formatDate, formatDateTime, fromDateInput, timeAgo } from "../../lib/format";
 import { paths } from "../../router";
+import { BoardSkeleton } from "./BoardSkeleton";
 import { useBuilding } from "./BuildingContext";
 
 const COLUMNS: TicketStatus[] = ["new", "assigned", "in_progress", "waiting", "done"];
@@ -57,9 +57,15 @@ const COLUMN_ACCENT: Record<TicketStatus, string> = {
 const PRIORITIES: Priority[] = ["P1", "P2", "P3"];
 const PRIORITY_RANK: Record<Priority, number> = { P1: 0, P2: 1, P3: 2 };
 
-function byUrgency(a: Ticket, b: Ticket): number {
-  return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || b.updatedAt.localeCompare(a.updatedAt);
+/** Most urgent first, then most recently updated. A move being saved counts as the newest update, so the card lands where it will stay. */
+function byUrgency(saving: ReadonlyMap<string, unknown>) {
+  return (a: Ticket, b: Ticket): number =>
+    PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || Number(saving.has(b.id)) - Number(saving.has(a.id)) || b.updatedAt.localeCompare(a.updatedAt);
 }
+
+// Occupied columns get room for their cards; empty ones only need to be a drop target.
+const OCCUPIED_TRACK = "minmax(232px, 1fr)";
+const EMPTY_TRACK = "minmax(148px, 0.6fr)";
 
 interface DragData {
   ticket: Ticket;
@@ -104,6 +110,15 @@ function TicketCardContent({
   const { propertyId } = useBuilding();
   const selectId = useId();
   const overlay = !onMove;
+  // On a closed menu, arrow keys and type-ahead change the value straight away (Chrome on Windows
+  // and Linux). Hold that choice as a draft and apply it on Enter or on leaving the menu, so the
+  // card doesn't jump columns on every key press.
+  const [draft, setDraft] = useState<TicketStatus | null>(null);
+  const keyed = useRef(false);
+  const commit = (status: TicketStatus) => {
+    setDraft(null);
+    if (status !== ticket.status) onMove?.(status);
+  };
   const overdue = ticket.dueAt && ticket.status !== "done" && new Date(ticket.dueAt).getTime() < Date.now();
   // The contractor usually is the assignee: show them once.
   const showContractor = !!contractor && contractor.name !== ticket.assigneeName;
@@ -115,7 +130,7 @@ function TicketCardContent({
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1">
           {handle}
-          <span className="font-mono text-[11px] text-muted">{ticket.number}</span>
+          <span className="text-[11px] font-medium tracking-[0.04em] whitespace-nowrap text-muted tabular-nums">{ticket.number}</span>
           {moving ? (
             // Only shows when a save is slow, so quick moves don't flicker.
             <span className="ml-1 animate-[fade-in_160ms_ease-out_400ms_both] text-muted">
@@ -151,24 +166,13 @@ function TicketCardContent({
             <Icon name="clock" className="size-3.5" />
             <dd>
               {overdue ? "Overdue · " : ticket.priority === "P3" ? "Due " : "Make safe by "}
-              {due}
+              <span className="whitespace-nowrap">{due}</span>
             </dd>
           </div>
         ) : null}
       </dl>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 border-t border-line pt-3">
-        {ticket.threadId && !overlay ? (
-          <Link href={paths.thread(propertyId, ticket.threadId)} className="link-brand inline-flex items-center gap-1 text-xs font-medium">
-            <Icon name="mail" className="size-3.5" /> Thread
-          </Link>
-        ) : ticket.threadId ? (
-          <span className="link-brand inline-flex items-center gap-1 text-xs font-medium">
-            <Icon name="mail" className="size-3.5" /> Thread
-          </span>
-        ) : (
-          <span className="text-[11px] text-muted">{timeAgo(ticket.updatedAt)}</span>
-        )}
+      <div className="mt-3 flex items-center gap-3 border-t border-line pt-3">
         {onMove ? (
           <label htmlFor={selectId} className="sr-only">
             Move {ticket.number} to
@@ -178,10 +182,46 @@ function TicketCardContent({
         <select
           id={overlay ? undefined : selectId}
           tabIndex={overlay ? -1 : undefined}
-          value={ticket.status}
-          disabled={moving}
-          onChange={(e) => onMove?.(e.target.value as TicketStatus)}
-          className={cx(selectClasses(undefined, "h-7"), "ml-auto w-auto! max-w-full py-0 pl-2! text-xs!")}
+          data-refocus="status"
+          value={draft ?? ticket.status}
+          // Not `disabled` while saving: a disabled menu can't hold focus, and focus follows the card to its new column.
+          aria-disabled={moving || undefined}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              if (draft) {
+                e.preventDefault();
+                commit(draft);
+              }
+              return;
+            }
+            if (e.key === "Escape") {
+              if (draft) {
+                e.preventDefault();
+                e.stopPropagation();
+                setDraft(null);
+              }
+              return;
+            }
+            if (e.key === "Tab") return;
+            keyed.current = true;
+            window.setTimeout(() => (keyed.current = false), 0);
+          }}
+          onChange={(e) => {
+            if (moving) return;
+            const next = e.target.value as TicketStatus;
+            if (keyed.current) setDraft(next === ticket.status ? null : next);
+            else commit(next);
+          }}
+          onBlur={() => {
+            if (!draft) return;
+            const next = draft;
+            // Once focus has landed, so the board can keep it if it stayed inside this card.
+            window.setTimeout(() => commit(next), 0);
+          }}
+          className={cx(
+            selectClasses(undefined, "h-8 pointer-coarse:h-10"),
+            "min-w-0 flex-1 py-0 pl-2! text-xs! aria-disabled:cursor-progress aria-disabled:text-muted",
+          )}
         >
           {COLUMNS.map((status) => (
             <option key={status} value={status}>
@@ -189,6 +229,22 @@ function TicketCardContent({
             </option>
           ))}
         </select>
+        {ticket.threadId && !overlay ? (
+          <Link
+            href={paths.thread(propertyId, ticket.threadId)}
+            data-refocus="thread"
+            aria-label={`Open the email thread for ${ticket.number}`}
+            className="link-brand inline-flex shrink-0 items-center gap-1 text-xs font-medium"
+          >
+            <Icon name="mail" className="size-3.5" /> Thread
+          </Link>
+        ) : ticket.threadId ? (
+          <span className="link-brand inline-flex shrink-0 items-center gap-1 text-xs font-medium">
+            <Icon name="mail" className="size-3.5" /> Thread
+          </span>
+        ) : (
+          <span className="shrink-0 text-[11px] text-muted">{timeAgo(ticket.updatedAt)}</span>
+        )}
       </div>
     </>
   );
@@ -216,10 +272,11 @@ function TicketCard(props: CardProps) {
         // manipulation keeps page scrolling on touch; the long-press callout and text selection would fight the drag.
         "touch-manipulation transition-opacity duration-150 [-webkit-touch-callout:none] pointer-coarse:select-none",
         !moving && "cursor-grab",
-        isDragging && "opacity-40",
+        // Faded, not hidden: the grip inside keeps focus during a keyboard drag and must stay visible.
+        isDragging && "opacity-60",
       )}
     >
-      <TicketCardContent {...props} handle={<DragHandle ref={setActivatorNodeRef} label={`Move ${ticket.number}`} {...attributes} />} />
+      <TicketCardContent {...props} handle={<DragHandle ref={setActivatorNodeRef} label={`Move ${ticket.number}`} data-refocus="grip" {...attributes} />} />
     </li>
   );
 }
@@ -260,8 +317,15 @@ function BoardColumn({
       className={cx(
         "flex min-w-0 flex-col rounded-xl p-3 transition-[background-color,box-shadow] duration-150",
         // One background and one ring at a time: Tailwind's own ordering would decide between two.
-        // The target lights up white with a charcoal keyline, like the website's outline buttons.
-        target ? "bg-surface ring-2 ring-ink" : isOver ? "bg-sunken ring-2 ring-line-input" : "bg-sunken ring-1 ring-line",
+        // The target lights up white with a charcoal keyline, like the website's outline buttons;
+        // while a card is moving, every column is outlined so the drop zones read clearly.
+        target
+          ? "bg-surface ring-2 ring-ink"
+          : isOver
+            ? "bg-sunken ring-2 ring-line-input"
+            : dragging
+              ? "bg-sunken ring-1 ring-line-input"
+              : "bg-sunken ring-1 ring-line",
       )}
     >
       <h3 id={`col-${status}`} className="mb-3 flex items-center gap-2 border-b border-line-strong px-1 pb-2.5">
@@ -363,7 +427,7 @@ function CreateTicketModal({
       size="lg"
       footer={
         <>
-          <Button variant="ghost" onClick={close} disabled={busy}>
+          <Button variant="secondary" onClick={close} disabled={busy}>
             Cancel
           </Button>
           <Button type="submit" form="create-ticket-form" variant="primary" icon="plus" loading={busy}>
@@ -415,20 +479,6 @@ function CreateTicketModal({
   );
 }
 
-function BoardSkeleton() {
-  return (
-    <div className="grid auto-cols-[minmax(196px,1fr)] grid-flow-col gap-3 overflow-hidden" role="status" aria-label="Loading work orders">
-      {COLUMNS.map((c) => (
-        <div key={c} className="space-y-3 rounded-xl bg-sunken p-3">
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-28 w-full rounded-xl" />
-          <Skeleton className="h-20 w-full rounded-xl" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function WorkOrdersTab() {
   const { propertyId, refreshKey, reloadOverview } = useBuilding();
   const toast = useToast();
@@ -451,10 +501,32 @@ export function WorkOrdersTab() {
       const status = pending.get(ticket.id) ?? ticket.status;
       grouped.get(status)?.push(status === ticket.status ? ticket : { ...ticket, status });
     }
-    for (const list of grouped.values()) list.sort(byUrgency);
+    const order = byUrgency(pending);
+    for (const list of grouped.values()) list.sort(order);
     return grouped;
   }, [tickets.data, pending]);
   const columns = drag?.board ?? board;
+  // The drag announcements and drop check compare against the latest list, not the frozen board.
+  const latest = useRef(tickets.data);
+  latest.current = tickets.data;
+
+  // A status change re-mounts the card in another column, which would drop keyboard focus to the
+  // page. Note which control in the card had focus, and put focus back once the card has moved.
+  const scroller = useRef<HTMLDivElement>(null);
+  const refocus = useRef<{ number: string; control: string } | null>(null);
+  const rememberFocus = (number: string) => {
+    const active = document.activeElement;
+    const control = active instanceof HTMLElement ? active.dataset.refocus : undefined;
+    refocus.current = control && active?.closest("[data-ticket]")?.getAttribute("data-ticket") === number ? { number, control } : null;
+  };
+  useLayoutEffect(() => {
+    const wanted = refocus.current;
+    if (!wanted) return;
+    const control = scroller.current?.querySelector<HTMLElement>(`[data-ticket="${CSS.escape(wanted.number)}"] [data-refocus="${wanted.control}"]`);
+    if (!control) return;
+    refocus.current = null;
+    if (control !== document.activeElement) control.focus();
+  }, [columns]);
 
   const settle = (id: string) =>
     setPending((current) => {
@@ -463,19 +535,29 @@ export function WorkOrdersTab() {
       return next;
     });
 
+  // No success toast: the card moving is the feedback, and drags are announced to screen readers.
   const move = async (ticket: Ticket, status: TicketStatus) => {
     if (status === ticket.status || pending.has(ticket.id)) return;
+    rememberFocus(ticket.number);
     setPending((current) => new Map(current).set(ticket.id, status));
+    const saved = (update: Ticket[] | ((list?: Ticket[]) => Ticket[])) => {
+      tickets.mutate(update);
+      // A list request sent before the save committed could still land with the old status: drop
+      // it, so the pending overlay can go in the same render. The live refresh brings the next list.
+      tickets.invalidate();
+      settle(ticket.id);
+      void reloadOverview();
+    };
     try {
       const updated = await api.updateTicket(propertyId, ticket.id, { status });
-      tickets.mutate((list = []) => list.map((t) => (t.id === updated.id ? updated : t)));
-      // A list request sent before the save committed could still land with the old status.
-      // Reloading now supersedes it, so the pending overlay can go in the same render.
-      void tickets.reload();
-      settle(ticket.id);
-      toast.success(`${ticket.number} moved to ${TICKET_STATUS_LABELS[updated.status]}`);
-      void reloadOverview();
+      saved((list = []) => list.map((t) => (t.id === updated.id ? updated : t)));
     } catch (err) {
+      // The save can reach the hub even when its reply is lost: check before reporting a failure.
+      if (err instanceof ApiError && err.status === 0) {
+        const fresh = await api.tickets(propertyId).catch(() => null);
+        if (fresh?.find((t) => t.id === ticket.id)?.status === status) return saved(fresh);
+      }
+      rememberFocus(ticket.number);
       settle(ticket.id);
       toast.error(`Couldn't move ${ticket.number}`, err);
     }
@@ -486,6 +568,11 @@ export function WorkOrdersTab() {
   const accessibility = useMemo(() => {
     const name = (active: Active) => ticketOf(active)?.number ?? "The work order";
     const home = (active: Active) => columnOfData(active.data.current);
+    /** Where the card is now, if someone else moved it while it was being dragged. */
+    const movedElsewhere = (active: Active) => {
+      const now = latest.current?.find((t) => t.id === active.id)?.status;
+      return now && now !== home(active) ? now : undefined;
+    };
     const announcements: Announcements = {
       onDragStart: ({ active }) => {
         lastOver.current = home(active) ?? null;
@@ -501,6 +588,8 @@ export function WorkOrdersTab() {
       },
       onDragEnd: ({ active, over }) => {
         const from = home(active);
+        const elsewhere = movedElsewhere(active);
+        if (elsewhere) return `${name(active)} was moved to ${columnLabel(elsewhere)} by someone else while you were dragging, so your move wasn't applied.`;
         if (!over || !isColumn(over.id)) return `${name(active)} was dropped outside the board. It stays in ${from ? columnLabel(from) : "its column"}.`;
         if (over.id === from) return `${name(active)} was dropped back in ${columnLabel(over.id)}. Nothing changed.`;
         return `Moved ${name(active)} to ${columnLabel(over.id)}.`;
@@ -524,31 +613,48 @@ export function WorkOrdersTab() {
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     setDrag(null);
     const ticket = ticketOf(active);
-    if (ticket && over && isColumn(over.id) && over.id !== ticket.status) void move(ticket, over.id);
+    if (!ticket) return;
+    // Someone else moved it mid-drag: don't overwrite their change (the board now shows it).
+    const now = latest.current?.find((t) => t.id === ticket.id)?.status;
+    if (now && now !== ticket.status) {
+      toast.info(`${ticket.number} was moved to ${TICKET_STATUS_LABELS[now]}`, "Someone else changed it while you were dragging, so your move wasn't applied.");
+      return;
+    }
+    if (over && isColumn(over.id) && over.id !== ticket.status) void move(ticket, over.id);
   };
 
-  const total = tickets.data?.length ?? 0;
-  const open = (tickets.data ?? []).filter((t) => t.status !== "done").length;
+  const collisions = useMemo(() => boardCollisions(() => scroller.current), []);
+  // Counted from what the board shows, so the line can't disagree with a board held still mid-drag.
+  const total = COLUMNS.reduce((n, status) => n + (columns.get(status)?.length ?? 0), 0);
+  const open = total - (columns.get("done")?.length ?? 0);
+  const tracks = COLUMNS.map((status) => (columns.get(status)?.length ? OCCUPIED_TRACK : EMPTY_TRACK)).join(" ");
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
+      <div className="mb-4 flex items-start justify-between gap-3 sm:items-center">
+        <div className="min-w-0">
           <h2 className="heading-display text-[15px] leading-6 text-ink">Work orders</h2>
           <p className="text-[13px] text-muted">
             {tickets.data ? (
               <>
                 {open} open · {total} total. <span className="pointer-coarse:hidden">Drag</span>
-                <span className="hidden pointer-coarse:inline">Press and hold</span> a card to change its status. P1/P2 maintenance creates tickets automatically.
+                <span className="hidden pointer-coarse:inline">Press and hold</span> a card to change its status.
+                <span className="max-sm:hidden"> P1/P2 maintenance creates tickets automatically.</span>
               </>
             ) : (
               "Loading…"
             )}
           </p>
         </div>
-        <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
-          New work order
-        </Button>
+        {/* Wrappers carry the breakpoint (the buttons set their own display): an icon button on a phone. */}
+        <div className="hidden shrink-0 sm:block">
+          <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
+            New work order
+          </Button>
+        </div>
+        <div className="shrink-0 sm:hidden">
+          <IconButton icon="plus" label="New work order" variant="primary" size="md" onClick={() => setCreating(true)} />
+        </div>
       </div>
 
       {tickets.loading ? (
@@ -560,14 +666,15 @@ export function WorkOrdersTab() {
       ) : (
         <DndContext
           sensors={sensors}
-          collisionDetection={boardCollisions}
+          collisionDetection={collisions}
           accessibility={accessibility}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
           onDragCancel={() => setDrag(null)}
         >
-          <div className="-mx-4 overflow-x-auto px-4 pb-2 scrollbar-thin sm:mx-0 sm:px-0">
-            <div className="grid auto-cols-[minmax(196px,1fr)] grid-flow-col gap-3">
+          {/* relative: the scroller must contain the cards' sr-only (absolute) labels, or they widen the page. */}
+          <div ref={scroller} className="relative -mx-4 overflow-x-auto px-4 pb-2 scrollbar-thin sm:mx-0 sm:px-0">
+            <div className="grid gap-3 transition-[grid-template-columns] duration-200" style={{ gridTemplateColumns: tracks }}>
               {COLUMNS.map((status) => {
                 const list = columns.get(status) ?? [];
                 return (

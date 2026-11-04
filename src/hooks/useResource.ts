@@ -9,6 +9,11 @@ export interface Resource<T> {
   /** True while a background refresh is in flight. */
   refreshing: boolean;
   reload: () => Promise<void>;
+  /**
+   * Ignore the responses to requests already in flight (they may predate a change just saved).
+   * Cheaper than a reload when a live refresh is on its way anyway. Only for data that has loaded.
+   */
+  invalidate: () => void;
   /** Replace the data locally (optimistic updates, or applying a mutation's response). */
   mutate: (update: T | ((previous: T | undefined) => T)) => void;
 }
@@ -82,6 +87,11 @@ export function useResource<T>(key: string | null, load: () => Promise<T>, refre
 
   const reload = useCallback(() => run(true), [run]);
 
+  const invalidate = useCallback(() => {
+    requestId.current++;
+    setSnapshot((s) => (s.refreshing ? { ...s, refreshing: false } : s));
+  }, []);
+
   const mutate = useCallback(
     (update: T | ((previous: T | undefined) => T)) => {
       setSnapshot((s) => {
@@ -100,6 +110,7 @@ export function useResource<T>(key: string | null, load: () => Promise<T>, refre
     loading: key !== null && (!current || snapshot.loading),
     refreshing: current && snapshot.refreshing,
     reload,
+    invalidate,
     mutate,
   };
 }

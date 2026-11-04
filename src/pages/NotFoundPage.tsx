@@ -9,7 +9,7 @@ export function NotFoundPage({ path }: { path: string }) {
       <EmptyState
         icon="search"
         title="Page not found"
-        description={<span className="font-mono text-xs">{path}</span>}
+        description={<span className="text-xs [overflow-wrap:anywhere]">{path}</span>}
         action={
           <Link href={paths.portfolio()} className="text-sm font-medium link-brand">
             Back to the portfolio

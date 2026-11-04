@@ -294,7 +294,7 @@ export function ChatPanel({
             <span className="grid size-12 place-items-center bg-charcoal text-white">
               <Icon name="bot" className="size-6" />
             </span>
-            <p className="mt-4 text-sm font-semibold text-ink">Ask {assistantName}</p>
+            <p className="heading-display mt-4 text-[13px] leading-5 text-ink">Ask {assistantName}</p>
             <p className="mt-1 mb-5 max-w-sm text-[13px] text-muted">{intro}</p>
             <Suggestions items={suggestions} onPick={submit} disabled={!!pending} />
           </div>
@@ -330,7 +330,7 @@ export function ChatPanel({
             {offlineHint}
           </p>
         ) : session.ai?.provider === "workers-ai" ? (
-          <p className="mb-2 flex items-center gap-1.5 text-xs text-sky-800">
+          <p className="mb-2 flex items-center gap-1.5 text-xs text-ink-soft">
             <Icon name="alert" className="size-3.5" />
             Workers AI light mode{session.ai.model ? ` (${session.ai.model})` : ""}: one answer from a document search, no tools.
           </p>

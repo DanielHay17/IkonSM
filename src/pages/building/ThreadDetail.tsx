@@ -99,7 +99,7 @@ function DraftComposer({ threadId, onDrafted, onCancel }: { threadId: string; on
         autoFocus
       />
       <div className="mt-3 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel} disabled={busy}>
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
           Cancel
         </Button>
         <Button variant="primary" icon="sparkles" loading={busy} onClick={draft}>
@@ -215,8 +215,8 @@ export function ThreadDetail({ threadId }: { threadId: string }) {
             </Button>
           ) : null}
           {pending.length ? (
-            <a href="#approvals" className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] font-medium text-amber-800 hover:underline">
-              <Icon name="clock" className="size-3.5" />
+            <a href="#approvals" className="ml-auto inline-flex h-8 items-center gap-1.5 px-2 text-[13px] font-medium link-brand">
+              <Icon name="clock" className="size-3.5 text-taupe" />
               {pending.length === 1 ? "1 draft awaiting approval" : `${pending.length} drafts awaiting approval`}
             </a>
           ) : null}
@@ -265,7 +265,7 @@ export function ThreadDetail({ threadId }: { threadId: string }) {
             </span>
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-ink">
-                <span className="font-mono text-[13px] text-muted">{ticket.number}</span> {ticket.title}
+                <span className="text-[13px] font-medium tracking-[0.02em] text-muted tabular-nums">{ticket.number}</span> {ticket.title}
               </p>
               <p className="text-xs text-muted">Work order · {TICKET_STATUS_LABELS[ticket.status]}</p>
             </div>

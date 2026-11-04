@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { cx } from "../lib/cx";
 import { Icon, type IconName } from "./Icon";
 
-export type BadgeTone = "neutral" | "accent" | "red" | "amber" | "slate" | "green" | "charcoal" | "violet" | "sky";
+// Monochrome brand tones plus the semantic colours (red P1/errors, amber P2/SAMPLE warnings, green done).
+export type BadgeTone = "neutral" | "accent" | "red" | "amber" | "slate" | "green" | "charcoal";
 
 const TONES: Record<BadgeTone, string> = {
   neutral: "bg-canvas text-ink-soft ring-line-strong",
@@ -13,8 +14,6 @@ const TONES: Record<BadgeTone, string> = {
   slate: "bg-sunken text-ink-soft ring-line-strong",
   green: "bg-emerald-50 text-emerald-800 ring-emerald-200",
   charcoal: "bg-charcoal text-white ring-charcoal",
-  violet: "bg-violet-50 text-violet-800 ring-violet-200",
-  sky: "bg-sky-50 text-sky-800 ring-sky-200",
 };
 
 const DOTS: Record<BadgeTone, string> = {
@@ -25,8 +24,6 @@ const DOTS: Record<BadgeTone, string> = {
   slate: "bg-taupe",
   green: "bg-emerald-500",
   charcoal: "bg-white",
-  violet: "bg-violet-500",
-  sky: "bg-sky-500",
 };
 
 interface BadgeProps {
@@ -35,20 +32,18 @@ interface BadgeProps {
   dot?: boolean;
   /** Solid badges are for the most important signals (P1). */
   solid?: boolean;
-  mono?: boolean;
   title?: string;
   className?: string;
   children: ReactNode;
 }
 
-export function Badge({ tone = "neutral", icon, dot, solid, mono, title, className, children }: BadgeProps) {
+export function Badge({ tone = "neutral", icon, dot, solid, title, className, children }: BadgeProps) {
   return (
     <span
       title={title}
       className={cx(
         "inline-flex max-w-full shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] leading-4 font-medium whitespace-nowrap ring-1 ring-inset",
         solid && tone === "red" ? "bg-red-600 text-white ring-red-600" : TONES[tone],
-        mono && "font-mono tracking-tight",
         className,
       )}
     >

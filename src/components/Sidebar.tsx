@@ -51,7 +51,7 @@ function BuildingList({ route }: { route: Route }) {
     return (
       <div className="space-y-2 px-3" aria-hidden="true">
         {Array.from({ length: 8 }, (_, i) => (
-          <Skeleton key={i} className="h-5 bg-white/5!" />
+          <Skeleton key={i} tone="onDark" className="h-5" />
         ))}
       </div>
     );
@@ -75,9 +75,7 @@ function BuildingList({ route }: { route: Route }) {
             >
               <span className="flex-1 truncate">{propertyLabel(profile)}</span>
               {profile.status === "pilot" ? (
-                <span className="px-1.5 py-px text-[10px] font-semibold tracking-[0.12em] text-white uppercase ring-1 ring-white/40 ring-inset">
-                  Pilot
-                </span>
+                <span className="px-1.5 py-px text-[11px] leading-4 font-medium text-white ring-1 ring-white/40 ring-inset">Pilot</span>
               ) : null}
               {counts.p1Open > 0 ? <AlertDot label={`${counts.p1Open} P1 open`} /> : null}
             </Link>
@@ -129,25 +127,29 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         {onClose ? <IconButton icon="close" label="Close menu" variant="dark" onClick={onClose} /> : null}
       </div>
 
-      <nav aria-label="Main" className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 scrollbar-dark">
-        <div className="space-y-0.5">
-          <NavItem href={paths.portfolio()} icon="grid" label="Portfolio" active={route.name === "portfolio"} />
-          <NavItem
-            href={paths.approvals()}
-            icon="approve"
-            label="Approvals"
-            active={route.name === "approvals"}
-            trailing={<CountBubble count={pendingApprovals} tone="inverse" label="pending" />}
-          />
-          <NavItem href={paths.chiefOfStaff()} icon="sparkles" label="Chief of Staff" active={route.name === "chief-of-staff"} />
-        </div>
+      <div className="relative min-h-0 flex-1">
+        <nav aria-label="Main" className="h-full overflow-y-auto px-3 pb-6 scrollbar-dark">
+          <div className="space-y-0.5">
+            <NavItem href={paths.portfolio()} icon="grid" label="Portfolio" active={route.name === "portfolio"} />
+            <NavItem
+              href={paths.approvals()}
+              icon="approve"
+              label="Approvals"
+              active={route.name === "approvals"}
+              trailing={<CountBubble count={pendingApprovals} tone="inverse" label="pending" />}
+            />
+            <NavItem href={paths.chiefOfStaff()} icon="sparkles" label="Chief of Staff" active={route.name === "chief-of-staff"} />
+          </div>
 
-        <div className="mt-6 mb-2 flex items-center justify-between px-3">
-          <h2 className="text-[11px] font-medium tracking-[0.2em] text-charcoal-muted uppercase">Buildings</h2>
-          {cards ? <span className="text-[11px] text-charcoal-muted tabular-nums">{cards.length}</span> : null}
-        </div>
-        <BuildingList route={route} />
-      </nav>
+          <div className="mt-6 mb-2 flex items-center justify-between px-3">
+            <h2 className="text-[11px] font-medium tracking-[0.2em] text-charcoal-muted uppercase">Buildings</h2>
+            {cards ? <span className="text-[11px] text-charcoal-muted tabular-nums">{cards.length}</span> : null}
+          </div>
+          <BuildingList route={route} />
+        </nav>
+        {/* Fades the list into the footer, so a cut-off row reads as "scroll for more". */}
+        <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-charcoal to-transparent" />
+      </div>
 
       <SidebarFooter />
     </div>

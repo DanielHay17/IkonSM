@@ -21,7 +21,7 @@ export function BusyIndicator({ busy, className }: { busy: PropertyState["busy"]
             <span className="font-semibold">Agent working</span>
             {busy?.label ? <span className="font-normal">: {busy.label}</span> : null}
           </span>
-          {busy?.since ? <span className="shrink-0 font-mono text-[11px] text-ink-soft tabular-nums">{formatElapsed(busy.since, now)}</span> : null}
+          {busy?.since ? <span className="shrink-0 text-[11px] text-ink-soft tabular-nums">{formatElapsed(busy.since, now)}</span> : null}
         </span>
       ) : null}
     </div>

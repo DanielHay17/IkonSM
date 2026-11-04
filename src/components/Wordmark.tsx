@@ -1,20 +1,24 @@
+import darkLogo from "../assets/brand/ikonsm-logo-dark.webp";
+import reversedLogo from "../assets/brand/ikonsm-logo-reversed.webp";
 import { cx } from "../lib/cx";
 
+// 480px wide (2x the largest display size), bundled so the file names carry a content hash.
+// The full-size masters are in docs/brand.
 const LOGO_SRC = {
   /** White artwork, for charcoal surfaces. */
-  reversed: "/brand/ikonsm-logo-reversed.png",
+  reversed: reversedLogo,
   /** Charcoal artwork, for white and light grey surfaces. */
-  dark: "/brand/ikonsm-logo-dark.png",
+  dark: darkLogo,
 } as const;
 
-/** The official IKON SM logo (served from public/brand, never hotlinked). Size it with a width class. */
+/** The official IKON SM logo (bundled from src/assets/brand, never hotlinked). Size it with a width class. */
 export function Logo({ tone = "reversed", className }: { tone?: keyof typeof LOGO_SRC; className?: string }) {
   return (
     <img
       src={LOGO_SRC[tone]}
       alt="IKON SM Strata Management"
-      width={1500}
-      height={308}
+      width={480}
+      height={99}
       decoding="async"
       className={cx("block h-auto max-w-full select-none", className)}
       draggable={false}
@@ -22,12 +26,12 @@ export function Logo({ tone = "reversed", className }: { tone?: keyof typeof LOG
   );
 }
 
-/** Small letter-spaced product label that sits with the logo, echoing its "STRATA MANAGEMENT" line. */
+/** Small product label that sits with the logo. Less tracking than the logo's own "STRATA MANAGEMENT" line, so the two don't compete. */
 export function ProductLabel({ tone = "reversed", className }: { tone?: keyof typeof LOGO_SRC; className?: string }) {
   return (
     <span
       className={cx(
-        "text-[10px] leading-none font-medium tracking-[0.3em] whitespace-nowrap uppercase",
+        "text-[11px] leading-none font-medium tracking-[0.12em] whitespace-nowrap uppercase",
         tone === "reversed" ? "text-charcoal-muted" : "text-taupe-ink",
         className,
       )}
@@ -51,8 +55,9 @@ export function Wordmark({ layout = "stacked", tone = "reversed" }: { layout?: "
     );
   }
   return (
-    <span className="flex flex-col gap-3">
-      <Logo tone={tone} className="w-[168px]" />
+    <span className="flex flex-col gap-4">
+      {/* 200px keeps the logo's tagline legible at 1x; the website shows it at about 244px. */}
+      <Logo tone={tone} className="w-[200px]" />
       <span className="flex items-center gap-2.5">
         <span aria-hidden="true" className="h-px w-5 bg-taupe" />
         <ProductLabel tone={tone} />

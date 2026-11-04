@@ -34,14 +34,15 @@ function Highlights({ brief }: { brief: PortfolioBrief }) {
       {brief.highlights.map((h, i) => {
         const card = cardFor(h.propertyId);
         return (
-          <li key={`${h.propertyId}-${i}`}>
+          // min-w-0 + max-w-full: a flex item grows to fit its text, so without a cap the label never truncates on a phone.
+          <li key={`${h.propertyId}-${i}`} className="max-w-full min-w-0">
             <Link
               href={paths.building(h.propertyId)}
               className="inline-flex max-w-full items-center gap-2 rounded-lg border border-line-strong bg-surface px-2.5 py-1.5 text-[13px] text-ink-soft transition-colors hover:border-ink hover:text-ink"
             >
-              {h.priority ? <PriorityBadge priority={h.priority} /> : <Badge tone="amber">Approval</Badge>}
-              <span className="font-medium text-ink">{card ? propertyLabel(card.profile) : labelFromId(h.propertyId)}</span>
-              <span className="truncate">{h.label}</span>
+              {h.priority ? <PriorityBadge priority={h.priority} /> : <Badge tone="accent">Approval</Badge>}
+              <span className="shrink-0 font-medium text-ink">{card ? propertyLabel(card.profile) : labelFromId(h.propertyId)}</span>
+              <span className="min-w-0 truncate">{h.label}</span>
             </Link>
           </li>
         );
@@ -98,7 +99,7 @@ export function BriefCard({ brief, loading, error, onRetry, onRefreshed, linkToC
                   {brief.engine === "rules" ? (
                     <Badge tone="slate">Rules summary (no AI)</Badge>
                   ) : (
-                    <Badge tone={brief.engine === "workers-ai" ? "sky" : "accent"}>
+                    <Badge tone={brief.engine === "workers-ai" ? "slate" : "accent"}>
                       Written by {engineLabel(brief.engine, brief.model, brief.provider)}
                     </Badge>
                   )}
