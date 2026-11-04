@@ -89,9 +89,9 @@ The message is from Jane Sample (Lot 4): "Water is pouring through my bathroom c
 **Show:** the **Work orders** tab.
 
 - The P1 work order is in **New**, with the contractor and the make-safe deadline.
-- **Drag it to In progress.** It moves straight away and confirms with "WO-26707-0001 moved to In progress".
+- **Drag it to In progress.** It moves straight away and saves in the background.
 - "Staff can drag a job across the board as it progresses. It works by touch on a phone or tablet, and from the keyboard: Space to pick up, arrows to move, Space to drop."
-- If the save fails, the card goes back to where it was and shows an error.
+- If the save fails, the card goes back to where it was and an error appears.
 
 ## 4. Ask the building (1 min)
 

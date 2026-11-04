@@ -668,6 +668,8 @@ export function WorkOrdersTab() {
           sensors={sensors}
           collisionDetection={collisions}
           accessibility={accessibility}
+          // A small, slow edge zone: on phones the next column peeks in, and the default 20% zone slid the board under the finger.
+          autoScroll={{ threshold: { x: 0.08, y: 0.2 }, acceleration: 4 }}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
           onDragCancel={() => setDrag(null)}
