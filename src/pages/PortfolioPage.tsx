@@ -17,21 +17,21 @@ import { paths } from "../router";
 function Metric({ label, value, icon, alert }: { label: string; value: number | string; icon: IconName; alert?: boolean }) {
   return (
     <Card className={cx("flex items-center gap-3.5 px-4 py-3.5", alert && "border-red-200 bg-red-50/60")}>
-      <span className={cx("grid size-9 place-items-center rounded-lg ring-1", alert ? "bg-red-100 text-red-700 ring-red-200" : "bg-subtle text-muted ring-line")}>
+      <span className={cx("hidden size-9 shrink-0 place-items-center ring-1 sm:grid", alert ? "bg-red-100 text-red-700 ring-red-200" : "bg-surface text-taupe ring-line-strong")}>
         <Icon name={icon} className="size-[18px]" />
       </span>
       <div className="min-w-0">
-        <p className={cx("text-xl font-semibold tabular-nums", alert ? "text-red-800" : "text-ink")}>{value}</p>
+        <p className={cx("heading-display text-[22px] leading-7 tabular-nums", alert ? "text-red-800" : "text-ink")}>{value}</p>
         <p className="text-xs leading-snug text-muted">{label}</p>
       </div>
     </Card>
   );
 }
 
-function Count({ label, value, tone }: { label: string; value: number; tone?: "red" | "amber" }) {
+function Count({ label, value }: { label: string; value: number }) {
   return (
     <div className="min-w-0">
-      <dd className={cx("text-base font-semibold tabular-nums", value > 0 && tone === "red" ? "text-red-700" : value > 0 && tone === "amber" ? "text-amber-700" : "text-ink")}>
+      <dd className="text-base font-semibold text-ink tabular-nums">
         {value}
       </dd>
       <dt className="truncate text-[11px] text-muted">{label}</dt>
@@ -50,7 +50,7 @@ function PropertyTile({ card, now }: { card: PropertyCardData; now: number }) {
     >
       <div className="flex flex-1 flex-col px-5 pt-4 pb-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-[15px] font-semibold text-ink">
+          <h2 className="heading-display text-[15px] leading-6 text-ink">
             <Link href={paths.building(profile.id)} className="after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-accent">
               SP {profile.spNumber}
             </Link>
@@ -64,8 +64,9 @@ function PropertyTile({ card, now }: { card: PropertyCardData; now: number }) {
           {lastActivityAt ? ` · active ${timeAgo(lastActivityAt, now)}` : ""}
         </p>
         {profile.notes ? (
-          <p className="mt-1.5 line-clamp-1 text-xs text-amber-800" title={profile.notes}>
-            {profile.notes}
+          <p className="mt-1.5 flex gap-1.5 text-xs text-ink-soft" title={profile.notes}>
+            <Icon name="alert" className="mt-px size-3.5 shrink-0 text-amber-600" />
+            <span className="line-clamp-1">{profile.notes}</span>
           </p>
         ) : null}
 
@@ -89,14 +90,14 @@ function PropertyTile({ card, now }: { card: PropertyCardData; now: number }) {
         <div className="min-h-4 flex-1" aria-hidden="true" />
         <dl className="mt-auto grid grid-cols-4 gap-2 border-t border-line pt-3">
           <Count label="Open" value={counts.openThreads} />
-          <Count label="Approvals" value={counts.pendingApprovals} tone="amber" />
+          <Count label="Approvals" value={counts.pendingApprovals} />
           <Count label="Work orders" value={counts.openTickets} />
           <Count label="Docs" value={counts.docs} />
         </dl>
       </div>
       <div className="relative z-10 flex items-center gap-1 rounded-b-xl border-t border-line bg-subtle/70 px-5 py-2">
         <Icon name="mail" className="size-3.5 text-muted" />
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-soft" title={profile.emailAddress}>
+        <span className="min-w-0 flex-1 truncate text-xs text-ink-soft tabular-nums" title={profile.emailAddress}>
           {profile.emailAddress}
         </span>
         <CopyButton text={profile.emailAddress} label={`Copy SP ${profile.spNumber} agent email address`} />

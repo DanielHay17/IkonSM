@@ -41,10 +41,12 @@ export function CategoryBadge({ category }: { category: Category }) {
   return <Badge tone="neutral">{CATEGORY_LABELS[category]}</Badge>;
 }
 
+// Monochrome: amber is kept for P2 and SAMPLE-data warnings, and "awaiting approval" is the normal
+// state of every draft, so it is a calm charcoal outline rather than a warning.
 const THREAD_STATUS: Record<ThreadStatus, { label: string; tone: BadgeTone }> = {
-  new: { label: "New", tone: "sky" },
+  new: { label: "New", tone: "charcoal" },
   triaged: { label: "Triaged", tone: "slate" },
-  awaiting_approval: { label: "Awaiting approval", tone: "amber" },
+  awaiting_approval: { label: "Awaiting approval", tone: "accent" },
   replied: { label: "Replied", tone: "green" },
   closed: { label: "Closed", tone: "neutral" },
 };
@@ -67,7 +69,7 @@ export const TICKET_STATUS_LABELS: Record<TicketStatus, string> = {
 };
 
 const APPROVAL_STATUS: Record<ApprovalStatus, { label: string; tone: BadgeTone; icon: IconName }> = {
-  pending: { label: "Awaiting approval", tone: "amber", icon: "clock" },
+  pending: { label: "Awaiting approval", tone: "accent", icon: "clock" },
   approved: { label: "Approved & sent", tone: "green", icon: "check" },
   rejected: { label: "Rejected", tone: "neutral", icon: "close" },
   failed: { label: "Send failed", tone: "red", icon: "alert" },
@@ -131,7 +133,7 @@ export function TriageEngineBadge({ triage }: { triage: Pick<Triage, "engine" | 
   }
   if (triage.engine === "workers-ai") {
     return (
-      <Badge tone="sky" icon="sparkles" title="Triaged by a Workers AI model (lighter than Claude), checked against the rules engine">
+      <Badge tone="slate" icon="sparkles" title="Triaged by a Workers AI model (lighter than Claude), checked against the rules engine">
         {triageEngineText(triage)}
       </Badge>
     );
@@ -143,20 +145,9 @@ export function TriageEngineBadge({ triage }: { triage: Pick<Triage, "engine" | 
   );
 }
 
-export function DraftEngineBadge({ approval }: { approval: Pick<Approval, "engine" | "model" | "provider"> }) {
-  if (approval.engine === "template") {
-    return (
-      <Badge tone="slate" icon="file" title="Safe template; no AI was used">
-        Template draft (no AI)
-      </Badge>
-    );
-  }
-  const label = engineLabel(approval.engine, approval.model, approval.provider);
-  return (
-    <Badge tone={approval.engine === "workers-ai" ? "sky" : "accent"} icon="sparkles" title={`Drafted by ${label}`}>
-      Drafted by {label}
-    </Badge>
-  );
+/** Which engine wrote a draft, as text: "Template draft (no AI)" or "Drafted by <engine>". */
+export function draftEngineText(approval: Pick<Approval, "engine" | "model" | "provider">): string {
+  return approval.engine === "template" ? "Template draft (no AI)" : `Drafted by ${engineLabel(approval.engine, approval.model, approval.provider)}`;
 }
 
 const INDEXED: Record<DocMeta["indexed"], { label: string; tone: BadgeTone; title: string }> = {
@@ -184,7 +175,7 @@ export function SampleBadge() {
 
 export function CompanyPolicyBadge() {
   return (
-    <Badge tone="violet" icon="bookmark" title="Ikon-wide policy, copied into every building agent">
+    <Badge tone="charcoal" icon="bookmark" title="Ikon-wide policy, copied into every building agent">
       Company policy
     </Badge>
   );
@@ -203,14 +194,14 @@ export function AiStatusPill({ online, ai, tone = "light" }: { online: boolean; 
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset",
+        "inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] leading-4 font-medium ring-1 ring-inset",
         tone === "dark"
           ? online
-            ? "bg-emerald-400/10 text-emerald-200 ring-emerald-300/20"
-            : "bg-white/5 text-navy-text ring-white/10"
+            ? "bg-emerald-400/10 text-emerald-200 ring-emerald-300/25"
+            : "bg-white/5 text-charcoal-text ring-white/15"
           : online
             ? "bg-emerald-50 text-emerald-800 ring-emerald-200"
-            : "bg-slate-100 text-slate-700 ring-slate-200",
+            : "bg-canvas text-ink-soft ring-line-strong",
       )}
       title={
         online
@@ -220,17 +211,20 @@ export function AiStatusPill({ online, ai, tone = "light" }: { online: boolean; 
           : `No LLM in use: rules and templates only${ai?.note ? ` (${ai.note})` : ""}`
       }
     >
-      <span aria-hidden="true" className={cx("size-1.5 rounded-full", online ? "bg-emerald-500" : "bg-slate-400")} />
+      <span aria-hidden="true" className={cx("size-1.5 rounded-full", online ? "bg-emerald-500" : "bg-taupe")} />
       {text}
     </span>
   );
 }
 
-/** Small "P1 open" alert dot used in lists and the sidebar. */
+/** Small "P1 open" alert dot used in lists and the sidebar. It pings three times when it appears, then stays still. */
 export function AlertDot({ label, className }: { label: string; className?: string }) {
   return (
     <span className={cx("relative inline-flex size-2", className)} title={label}>
-      <span aria-hidden="true" className="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-50 motion-reduce:hidden" />
+      <span
+        aria-hidden="true"
+        className="absolute inline-flex size-full animate-[ping_1s_cubic-bezier(0,0,0.2,1)_3] rounded-full bg-red-500 opacity-50 motion-reduce:hidden"
+      />
       <span aria-hidden="true" className="relative inline-flex size-2 rounded-full bg-red-500" />
       <span className="sr-only">{label}</span>
     </span>

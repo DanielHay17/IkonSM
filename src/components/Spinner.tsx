@@ -17,13 +17,3 @@ export function Spinner({ className = "size-4", label = "Loading" }: SpinnerProp
     </span>
   );
 }
-
-/** Centered spinner for a whole page or panel. */
-export function PageSpinner({ label = "Loading" }: { label?: string }) {
-  return (
-    <div className="flex min-h-[40vh] items-center justify-center gap-3 text-sm text-muted">
-      <Spinner className="size-5 text-accent" label={null} />
-      <span>{label}…</span>
-    </div>
-  );
-}

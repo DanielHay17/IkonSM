@@ -128,11 +128,12 @@ function ContactFormModal({
       open={open}
       onClose={busy ? () => undefined : onClose}
       title={contact ? `Edit ${contact.name}` : "Add contact"}
+      plainTitle={!!contact}
       description="Approved emails can only go to a thread's sender or a contact saved here."
       size="lg"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button type="submit" form="contact-form" variant="primary" icon="check" loading={busy}>
@@ -182,10 +183,11 @@ function ContactTable({ role, contacts, onEdit, onDelete }: { role: ContactRole;
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center justify-between border-b border-line px-5 py-3">
-        <h3 className="text-sm font-semibold text-ink">{ROLE_LABELS[role].group}</h3>
+        <h3 className="heading-display text-[13px] leading-6 text-ink">{ROLE_LABELS[role].group}</h3>
         <Badge tone="neutral">{contacts.length}</Badge>
       </div>
-      <div className="overflow-x-auto scrollbar-thin">
+      {/* relative: the scroller must contain the table's sr-only (absolute) cells, or they widen the page on phones. */}
+      <div className="relative overflow-x-auto scrollbar-thin">
         <table className="w-full min-w-[640px] text-left text-[13px]">
           <thead className="bg-subtle text-xs text-muted">
             <tr>
@@ -218,7 +220,7 @@ function ContactTable({ role, contacts, onEdit, onDelete }: { role: ContactRole;
                 {showTrade ? <td className="px-3 py-3 text-ink-soft capitalize">{c.trade ?? "-"}</td> : null}
                 <td className="px-3 py-3">
                   {c.email ? (
-                    <a href={`mailto:${c.email}`} className="text-ink-soft [overflow-wrap:anywhere] hover:text-accent hover:underline">
+                    <a href={`mailto:${c.email}`} className="text-ink-soft [overflow-wrap:anywhere] hover:text-ink hover:underline">
                       {c.email}
                     </a>
                   ) : (
@@ -227,7 +229,7 @@ function ContactTable({ role, contacts, onEdit, onDelete }: { role: ContactRole;
                 </td>
                 <td className="px-3 py-3 whitespace-nowrap">
                   {c.phone ? (
-                    <a href={`tel:${c.phone.replace(/\s+/g, "")}`} className="text-ink-soft hover:text-accent hover:underline">
+                    <a href={`tel:${c.phone.replace(/\s+/g, "")}`} className="text-ink-soft hover:text-ink hover:underline">
                       {c.phone}
                     </a>
                   ) : (
@@ -238,7 +240,7 @@ function ContactTable({ role, contacts, onEdit, onDelete }: { role: ContactRole;
                 <td className="px-5 py-2.5">
                   <div className="flex justify-end gap-0.5">
                     <IconButton icon="pencil" label={`Edit ${c.name}`} onClick={() => onEdit(c)} />
-                    <IconButton icon="trash" label={`Delete ${c.name}`} variant="dangerGhost" onClick={() => onDelete(c)} />
+                    <IconButton icon="trash" label={`Delete ${c.name}`} variant="dangerQuiet" onClick={() => onDelete(c)} />
                   </div>
                 </td>
               </tr>

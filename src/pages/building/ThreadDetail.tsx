@@ -26,7 +26,7 @@ import { useBuilding } from "./BuildingContext";
 
 const DIRECTION: Record<Message["direction"], { label: string; className: string }> = {
   inbound: { label: "Received", className: "border-line bg-surface" },
-  outbound: { label: "Sent", className: "border-accent/25 bg-accent-soft/40" },
+  outbound: { label: "Sent", className: "border-line-strong bg-canvas" },
   internal: { label: "Internal note", className: "border-dashed border-line-strong bg-subtle" },
 };
 
@@ -40,7 +40,7 @@ function MessageCard({ message }: { message: Message }) {
           <span className="text-muted"> to {message.to}</span>
           {message.senderVerified === false ? (
             <span
-              className="ml-2 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900 ring-1 ring-amber-200 ring-inset"
+              className="ml-2 inline-flex items-center bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900 ring-1 ring-amber-200 ring-inset"
               title="This email did not pass SPF/DKIM/DMARC checks: the From address may be forged"
             >
               Unverified sender
@@ -99,7 +99,7 @@ function DraftComposer({ threadId, onDrafted, onCancel }: { threadId: string; on
         autoFocus
       />
       <div className="mt-3 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel} disabled={busy}>
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
           Cancel
         </Button>
         <Button variant="primary" icon="sparkles" loading={busy} onClick={draft}>
@@ -215,8 +215,8 @@ export function ThreadDetail({ threadId }: { threadId: string }) {
             </Button>
           ) : null}
           {pending.length ? (
-            <a href="#approvals" className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[13px] font-medium text-amber-800 hover:underline">
-              <Icon name="clock" className="size-3.5" />
+            <a href="#approvals" className="ml-auto inline-flex h-8 items-center gap-1.5 px-2 text-[13px] font-medium link-brand">
+              <Icon name="clock" className="size-3.5 text-taupe" />
               {pending.length === 1 ? "1 draft awaiting approval" : `${pending.length} drafts awaiting approval`}
             </a>
           ) : null}
@@ -240,7 +240,7 @@ export function ThreadDetail({ threadId }: { threadId: string }) {
       {/* The decision is the main action, so the drafts come before the triage detail and the conversation. */}
       {pending.length ? (
         <section id="approvals" aria-labelledby="approvals-heading" className="scroll-mt-20 space-y-3">
-          <h3 id="approvals-heading" className="text-xs font-semibold tracking-wide text-muted uppercase">
+          <h3 id="approvals-heading" className="heading-display text-xs text-ink-soft">
             Awaiting your approval
           </h3>
           {pending.map((approval) => (
@@ -265,19 +265,19 @@ export function ThreadDetail({ threadId }: { threadId: string }) {
             </span>
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-ink">
-                <span className="font-mono text-[13px] text-muted">{ticket.number}</span> {ticket.title}
+                <span className="text-[13px] font-medium tracking-[0.02em] text-muted tabular-nums">{ticket.number}</span> {ticket.title}
               </p>
               <p className="text-xs text-muted">Work order · {TICKET_STATUS_LABELS[ticket.status]}</p>
             </div>
           </div>
-          <Link href={paths.building(propertyId, "work-orders")} className="inline-flex items-center gap-1 text-[13px] font-medium text-accent hover:underline">
+          <Link href={paths.building(propertyId, "work-orders")} className="inline-flex items-center gap-1 text-[13px] font-medium link-brand">
             View work orders <Icon name="arrowRight" className="size-3.5" />
           </Link>
         </Card>
       ) : null}
 
       <section aria-labelledby="conversation-heading">
-        <h3 id="conversation-heading" className="mb-2 text-xs font-semibold tracking-wide text-muted uppercase">
+        <h3 id="conversation-heading" className="heading-display mb-2 text-xs text-ink-soft">
           Conversation ({messages.length})
         </h3>
         <ol className="space-y-3">
@@ -289,7 +289,7 @@ export function ThreadDetail({ threadId }: { threadId: string }) {
 
       {decided.length ? (
         <section aria-labelledby="history-heading" className="space-y-3">
-          <h3 id="history-heading" className="text-xs font-semibold tracking-wide text-muted uppercase">
+          <h3 id="history-heading" className="heading-display text-xs text-ink-soft">
             Decided
           </h3>
           {decided.map((approval) => (

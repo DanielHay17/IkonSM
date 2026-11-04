@@ -64,7 +64,7 @@ export function ApprovalsPage() {
       <PageHeader
         title="Approvals"
         description="Every outbound email and contractor dispatch waits here for a person. Edit the draft if needed, then approve or reject."
-        actions={approvals.data ? <Badge tone={count ? "amber" : "green"}>{count ? `${plural(count, "draft")} waiting` : "All clear"}</Badge> : null}
+        badge={approvals.data ? <Badge tone={count ? "accent" : "green"} dot>{count ? `${plural(count, "draft")} waiting` : "All clear"}</Badge> : null}
       />
 
       {approvals.loading ? (
@@ -86,8 +86,8 @@ export function ApprovalsPage() {
           {groups.map(({ propertyId, items }) => (
             <section key={propertyId} aria-labelledby={`approvals-${propertyId}`}>
               <div className="mb-3 flex items-center justify-between gap-3">
-                <h2 id={`approvals-${propertyId}`} className="text-sm font-semibold text-ink">
-                  <Link href={paths.building(propertyId)} className="hover:text-accent hover:underline">
+                <h2 id={`approvals-${propertyId}`} className="heading-display text-[13px] leading-5 text-ink">
+                  <Link href={paths.building(propertyId)} className="link-brand">
                     {labelFor(propertyId)}
                   </Link>
                 </h2>

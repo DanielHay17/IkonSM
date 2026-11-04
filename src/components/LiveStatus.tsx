@@ -12,7 +12,7 @@ export function BusyIndicator({ busy, className }: { busy: PropertyState["busy"]
   return (
     <div aria-live="polite" className={className}>
       {active ? (
-        <span className="inline-flex max-w-full animate-fade-in items-center gap-2 rounded-full bg-accent-soft py-1 pr-3 pl-2.5 text-xs font-medium text-accent-strong ring-1 ring-accent/20 ring-inset">
+        <span className="inline-flex max-w-full animate-fade-in items-center gap-2 bg-accent-soft py-1 pr-3 pl-2.5 text-xs font-medium text-accent-strong ring-1 ring-line-strong ring-inset">
           <span aria-hidden="true" className="relative flex size-2">
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent/50 motion-reduce:hidden" />
             <span className="relative inline-flex size-2 animate-soft-pulse rounded-full bg-accent" />
@@ -21,7 +21,7 @@ export function BusyIndicator({ busy, className }: { busy: PropertyState["busy"]
             <span className="font-semibold">Agent working</span>
             {busy?.label ? <span className="font-normal">: {busy.label}</span> : null}
           </span>
-          {busy?.since ? <span className="shrink-0 font-mono text-[11px] text-accent/80 tabular-nums">{formatElapsed(busy.since, now)}</span> : null}
+          {busy?.since ? <span className="shrink-0 text-[11px] text-ink-soft tabular-nums">{formatElapsed(busy.since, now)}</span> : null}
         </span>
       ) : null}
     </div>
@@ -30,7 +30,7 @@ export function BusyIndicator({ busy, className }: { busy: PropertyState["busy"]
 
 const MODES: Record<LiveMode, { label: string; dot: string; title: string }> = {
   live: { label: "Live", dot: "bg-emerald-500", title: "Connected to the building agent: updates appear instantly" },
-  connecting: { label: "Connecting", dot: "bg-slate-400 animate-soft-pulse", title: "Connecting to the building agent" },
+  connecting: { label: "Connecting", dot: "bg-taupe animate-soft-pulse", title: "Connecting to the building agent" },
   polling: {
     label: `Refreshing every ${POLL_INTERVAL_MS / 1000}s`,
     dot: "bg-amber-500",

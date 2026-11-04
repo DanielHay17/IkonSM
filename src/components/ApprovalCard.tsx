@@ -11,7 +11,7 @@ import { inputClasses, textareaClasses } from "./Field";
 import { Icon } from "./Icon";
 import { Link } from "./Link";
 import { ConfirmDialog } from "./Modal";
-import { ApprovalStatusBadge, DraftEngineBadge } from "./StatusBadges";
+import { ApprovalStatusBadge, draftEngineText } from "./StatusBadges";
 import { useToast } from "./Toast";
 
 interface ApprovalCardProps {
@@ -49,7 +49,7 @@ export function CitationList({ citations, propertyId }: { citations: Citation[];
             <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
               <Icon name="file" className="size-3.5 text-muted" />
               {propertyId ? (
-                <Link href={paths.vaultDoc(propertyId, citation.docId)} className="truncate hover:text-accent hover:underline">
+                <Link href={paths.vaultDoc(propertyId, citation.docId)} className="truncate link-brand">
                   {citation.docName}
                 </Link>
               ) : (
@@ -84,6 +84,14 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
   const superseded = isSuperseded(approval);
   const edited = subject !== approval.draft.subject || body !== approval.draft.body;
   const recipient = approval.draft.toName ? `${approval.draft.toName} <${approval.draft.to}>` : approval.draft.to;
+  // One notice for everything to check before approving (amber is for SAMPLE-data warnings).
+  const usesSample = pending && /\bSAMPLE\b/.test(approval.rationale);
+  // Template rationales already open with "Template draft (AI offline)": don't say it twice.
+  const engineSaid = approval.engine === "template" && /^template draft/i.test(approval.rationale);
+  const checks = [
+    usesSample ? "uses SAMPLE records" : null,
+    pending && approval.simulated ? "replies to a simulated message (approving still sends a real email)" : null,
+  ].filter(Boolean);
 
   const decide = async (decision: ApprovalDecision["decision"]) => {
     setBusy(decision);
@@ -104,18 +112,19 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
   };
 
   return (
-    <Card className={cx("overflow-hidden", pending && "border-amber-200 ring-1 ring-amber-100")}>
+    // A pending draft carries a charcoal rule down its left edge; the heading above already says it awaits approval.
+    <Card className={cx("overflow-hidden", pending && "border-l-2 border-l-ink")}>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
         <div className="min-w-0">
           {context ? (
             <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-              <Link href={paths.building(approval.propertyId)} className="font-medium text-ink-soft hover:text-accent hover:underline">
+              <Link href={paths.building(approval.propertyId)} className="font-medium text-ink-soft link-brand">
                 {context.propertyLabel}
               </Link>
               {approval.threadId ? (
                 <>
                   <span aria-hidden="true">·</span>
-                  <Link href={paths.thread(approval.propertyId, approval.threadId)} className="inline-flex items-center gap-1 hover:text-accent hover:underline">
+                  <Link href={paths.thread(approval.propertyId, approval.threadId)} className="inline-flex items-center gap-1 text-ink-soft link-brand">
                     Open thread <Icon name="arrowRight" className="size-3" />
                   </Link>
                 </>
@@ -124,39 +133,49 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
           ) : null}
           <h3 className="text-[15px] leading-snug font-semibold text-ink">{approval.title}</h3>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <Badge tone={approval.kind === "dispatch_contractor" ? "violet" : "sky"} icon={approval.kind === "dispatch_contractor" ? "wrench" : "mail"}>
+            <Badge tone={approval.kind === "dispatch_contractor" ? "charcoal" : "accent"} icon={approval.kind === "dispatch_contractor" ? "wrench" : "mail"}>
               {KIND_LABEL[approval.kind]}
             </Badge>
-            <DraftEngineBadge approval={approval} />
-            {pending && /\bSAMPLE\b/.test(approval.rationale) ? (
-              <Badge tone="amber" icon="alert" title="The draft relies on SAMPLE documents or contacts: check every fact before sending">
-                Uses SAMPLE records
-              </Badge>
-            ) : null}
-            {approval.simulated ? (
-              <Badge tone="amber" icon="alert" title="This came from the Simulate panel, but approving still sends a real email">
-                Simulated message
-              </Badge>
-            ) : null}
             {superseded ? <Badge tone="neutral">Replaced</Badge> : !pending ? <ApprovalStatusBadge status={approval.status} /> : null}
             <span className="text-xs text-muted" title={formatDateTime(approval.createdAt)}>
               {approval.createdBy === "agent" ? "Agent" : approval.createdBy} · {timeAgo(approval.createdAt)}
+              {!pending && approval.simulated ? " · simulated" : ""}
             </span>
           </div>
         </div>
-        {pending ? <ApprovalStatusBadge status="pending" /> : null}
       </div>
 
       <div className="space-y-4 px-5 py-4">
-        {approval.rationale ? (
-          <p className="flex gap-2 text-[13px] text-ink-soft">
-            <Icon name="sparkles" className="mt-0.5 size-3.5 text-accent" />
+        {checks.length ? (
+          <p
+            className="flex gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[13px] text-amber-900 ring-1 ring-amber-200 ring-inset"
+            title={usesSample ? "The draft relies on SAMPLE documents or contacts: check every fact before sending" : undefined}
+          >
+            <Icon name="alert" className="mt-0.5 size-3.5 shrink-0 text-amber-700" />
             <span>
-              <span className="font-medium text-ink">Why: </span>
-              {approval.rationale}
+              <span className="font-medium">Check before sending: </span>
+              {checks.join(" · ")}.
             </span>
           </p>
         ) : null}
+        {/* The engine sits with the reason, so AI and template drafts are never confused, without another badge. */}
+        <p className="flex gap-2 text-[13px] text-ink-soft">
+          <Icon name={approval.engine === "template" ? "file" : "sparkles"} className="mt-0.5 size-3.5 shrink-0 text-taupe" />
+          <span>
+            {approval.rationale ? (
+              <>
+                <span className="font-medium text-ink">Why: </span>
+                {approval.rationale}
+              </>
+            ) : null}
+            {engineSaid ? null : (
+              <span className="text-muted">
+                {approval.rationale ? " · " : ""}
+                {draftEngineText(approval)}
+              </span>
+            )}
+          </span>
+        </p>
 
         <div className="rounded-lg border border-line">
           <div className="flex items-center gap-2 border-b border-line bg-subtle px-3 py-2 text-[13px]">
@@ -226,10 +245,10 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
           <p className="text-xs text-muted">
             {edited ? (
               <span className="inline-flex items-center gap-2">
-                <span className="font-medium text-amber-800">Edited: your changes will be sent.</span>
+                <span className="font-medium text-ink">Edited: your changes will be sent.</span>
                 <button
                   type="button"
-                  className="font-medium text-accent hover:underline"
+                  className="font-medium link-brand"
                   onClick={() => {
                     setSubject(approval.draft.subject);
                     setBody(approval.draft.body);

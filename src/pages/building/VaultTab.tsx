@@ -63,14 +63,14 @@ function FolderTree({ docs, filter, onSelect }: { docs: DocMeta[]; filter: Folde
           aria-current={active ? "true" : undefined}
           className={cx(
             "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors",
-            active ? "bg-accent-soft font-medium text-accent-strong" : "text-ink-soft hover:bg-subtle hover:text-ink",
+            active ? "bg-accent font-medium text-white" : "text-ink-soft hover:bg-ink/[0.05] hover:text-ink",
           )}
         >
-          <Icon name={icon} className={cx("size-4", active ? "text-accent" : "text-muted")} />
+          <Icon name={icon} className={cx("size-4", active ? "text-white" : "text-taupe")} />
           <span className="min-w-0 flex-1 truncate" title={label}>
             {label}
           </span>
-          <span className="text-xs text-muted tabular-nums">{count}</span>
+          <span className={cx("text-xs tabular-nums", active ? "text-white/80" : "text-muted")}>{count}</span>
         </button>
       </li>
     );
@@ -204,11 +204,11 @@ function UploadPanel({ defaultFolder, onUploaded }: { defaultFolder: string; onU
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
         className={cx(
-          "mt-3 flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors",
-          dragging ? "border-accent bg-accent-soft/60" : "border-line-strong bg-subtle/60",
+          "mt-3 flex flex-col items-center justify-center rounded-xl border border-dashed px-4 py-6 text-center transition-colors",
+          dragging ? "border-accent bg-accent-soft" : "border-line-input bg-subtle",
         )}
       >
-        <Icon name="upload" className={cx("size-6", dragging ? "text-accent" : "text-muted")} />
+        <Icon name="upload" className={cx("size-6", dragging ? "text-accent" : "text-taupe")} />
         <p className="mt-2 text-sm font-medium text-ink">Drop files here</p>
         <p className="mt-0.5 text-xs text-muted">PDF, Word (.docx), text, Markdown, CSV or HTML, up to 25 MB. Text is extracted and indexed for the agent.</p>
       </div>
@@ -242,7 +242,7 @@ function DocRow({ doc, onView, onDelete, showFolder }: { doc: DocMeta; onView: (
         <Icon name="file" className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
-        <button type="button" onClick={onView} className="line-clamp-2 max-w-full text-left text-sm font-medium break-words text-ink hover:text-accent hover:underline">
+        <button type="button" onClick={onView} className="line-clamp-2 max-w-full text-left text-sm font-medium break-words link-brand">
           {doc.name}
         </button>
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -262,7 +262,7 @@ function DocRow({ doc, onView, onDelete, showFolder }: { doc: DocMeta; onView: (
         <a href={api.docDownloadUrl(propertyId, doc.id)} download className={buttonClasses("ghost", "sm", "w-8 px-0")} aria-label={`Download ${doc.name}`} title="Download">
           <Icon name="download" className="size-4" />
         </a>
-        <IconButton icon="trash" label={`Delete ${doc.name}`} variant="dangerGhost" onClick={onDelete} />
+        <IconButton icon="trash" label={`Delete ${doc.name}`} variant="dangerQuiet" onClick={onDelete} />
       </div>
     </li>
   );
@@ -319,6 +319,7 @@ function DocViewer({
       placement="right"
       size="lg"
       title={meta?.name ?? "Document"}
+      plainTitle
       description={
         meta ? (
           <span className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -515,8 +516,8 @@ export function VaultTab() {
 
         <Card className="overflow-hidden">
           <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
-              <Icon name={filter.kind === "company" ? "bookmark" : "folder"} className="size-4 text-muted" />
+            <h2 className="heading-display flex min-w-0 items-center gap-2 text-[13px] leading-6 text-ink">
+              <Icon name={filter.kind === "company" ? "bookmark" : "folder"} className="size-4 shrink-0 text-taupe" />
               {heading}
             </h2>
             {docs.data ? <Badge tone="neutral">{plural(visible.length, "document")}</Badge> : null}
