@@ -1,33 +1,60 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /*
+   * IKON SM brand (ikonsm.com.au). Body and UI text: Poppins. Display: Archivo Expanded, a free
+   * stand-in for the website's Agrandir; swap the family here if Ikon provides an Adobe Fonts kit.
+   */
+  --font-sans: "Poppins", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Archivo", "Arial Black", "Helvetica Neue", Arial, sans-serif;
+  --font-display--font-variation-settings: "wdth" 125;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
+  /* Brand palette (monochrome, as on the website) */
+  --color-brand: #292929;
+  --color-silver: #d2d4d5;
+  /* Taupe is 3.9:1 on white: rules, icons and accents only. Use taupe-ink for text. */
+  --color-taupe: #848079;
+  --color-taupe-ink: #6b675f;
+
   /* Surfaces and ink */
-  --color-canvas: #f7f6f3;
+  --color-canvas: #f5f5f5;
   --color-surface: #ffffff;
-  --color-subtle: #faf9f7;
-  --color-ink: #14161a;
-  --color-ink-soft: #3a3e45;
-  --color-muted: #63676f;
-  --color-line: #e7e4dd;
-  --color-line-strong: #d5d1c7;
+  --color-subtle: #fafafa;
+  /* Inset wells (board columns, tracks) on white or canvas. */
+  --color-sunken: #ededed;
+  --color-ink: #292929;
+  --color-ink-soft: #474747;
+  --color-muted: #666666;
+  --color-line: #e4e5e6;
+  --color-line-strong: #d2d4d5;
+  /* Form-control and outline-button borders: 3:1 against white. */
+  --color-line-input: #929496;
 
-  /* Sidebar */
-  --color-navy: #0f1b2d;
-  --color-navy-800: #15253b;
-  --color-navy-700: #1e3250;
-  --color-navy-text: #c3cddb;
-  --color-navy-muted: #8394ab;
+  /* Charcoal brand surface: sidebar, mobile bar, login hero, terminal */
+  --color-charcoal: #292929;
+  --color-charcoal-800: #333333;
+  --color-charcoal-700: #3d3d3d;
+  --color-charcoal-text: #d2d4d5;
+  --color-charcoal-muted: #b5b2ab;
 
-  /* Single accent for primary actions */
-  --color-accent: #0f766e;
-  --color-accent-strong: #0b5c55;
-  --color-accent-soft: #e6f2f0;
+  /* Primary actions, focus, selection: the brand charcoal */
+  --color-accent: #292929;
+  --color-accent-strong: #141414;
+  --color-accent-soft: #eeeeee;
 
-  --shadow-card: 0 1px 2px rgb(20 22 26 / 0.04), 0 2px 6px -2px rgb(20 22 26 / 0.06);
-  --shadow-pop: 0 16px 40px -12px rgb(15 27 45 / 0.28), 0 2px 6px rgb(15 27 45 / 0.08);
+  /* Sharp corners, like the website: controls are square, cards and dialogs barely eased. */
+  --radius: 0px;
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 2px;
+  --radius-2xl: 2px;
+  --radius-3xl: 2px;
+
+  --shadow-card: 0 1px 2px rgb(41 41 41 / 0.04);
+  --shadow-pop: 0 18px 40px -16px rgb(41 41 41 / 0.32), 0 2px 6px rgb(41 41 41 / 0.08);
 
   --animate-soft-pulse: soft-pulse 1.8s ease-in-out infinite;
   --animate-fade-in: fade-in 160ms ease-out;
@@ -99,7 +126,6 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    font-feature-settings: "cv11", "ss01", "ss03";
   }
 
   body {
@@ -115,7 +141,12 @@
   }
 
   ::selection {
-    background-color: color-mix(in srgb, var(--color-accent) 22%, transparent);
+    background-color: color-mix(in srgb, var(--color-taupe) 30%, transparent);
+  }
+
+  /* The display face is only served at width 125 (Expanded): ask for it explicitly. */
+  .font-display {
+    font-stretch: 125%;
   }
 
   /* Keep the page from scrolling behind an open modal dialog. */
@@ -124,7 +155,7 @@
   }
 
   dialog::backdrop {
-    background-color: rgb(15 27 45 / 0.45);
+    background-color: rgb(41 41 41 / 0.5);
     backdrop-filter: blur(2px);
   }
 
@@ -142,6 +173,39 @@
       transition-duration: 1ms !important;
       scroll-behavior: auto !important;
     }
+  }
+}
+
+/*
+ * On charcoal surfaces the charcoal focus ring would vanish: switch it to white. Unlayered, so it
+ * also wins over focus-visible:outline-accent utilities on buttons inside.
+ */
+[data-surface="dark"] :focus-visible {
+  outline-color: #ffffff;
+}
+
+/*
+ * Wide uppercase heading in the display face, styled like the website's headings (weight 800,
+ * slight negative tracking). Set the size and leading with text-* classes; don't add tracking-*.
+ */
+@utility heading-display {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 125;
+  font-stretch: 125%;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+
+/* Standalone text link: charcoal with a taupe underline (colour alone can't mark a charcoal link). */
+@utility link-brand {
+  color: var(--color-ink);
+  text-decoration-line: underline;
+  text-decoration-color: var(--color-taupe);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  &:hover {
+    text-decoration-color: var(--color-ink);
   }
 }
 

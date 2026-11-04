@@ -86,7 +86,7 @@ export function ApprovalsPage() {
           {groups.map(({ propertyId, items }) => (
             <section key={propertyId} aria-labelledby={`approvals-${propertyId}`}>
               <div className="mb-3 flex items-center justify-between gap-3">
-                <h2 id={`approvals-${propertyId}`} className="text-sm font-semibold text-ink">
+                <h2 id={`approvals-${propertyId}`} className="heading-display text-[13px] leading-5 text-ink">
                   <Link href={paths.building(propertyId)} className="hover:text-accent hover:underline">
                     {labelFor(propertyId)}
                   </Link>

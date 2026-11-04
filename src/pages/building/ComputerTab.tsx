@@ -24,15 +24,15 @@ const KINDS: Record<ActivityKind, { tag: string; color: string }> = {
   message_in: { tag: "MSG IN", color: "text-sky-300" },
   triage: { tag: "TRIAGE", color: "text-amber-300" },
   tool: { tag: "TOOL", color: "text-violet-300" },
-  draft: { tag: "DRAFT", color: "text-teal-300" },
+  draft: { tag: "DRAFT", color: "text-white" },
   approval: { tag: "APPROVAL", color: "text-emerald-300" },
   email_out: { tag: "EMAIL OUT", color: "text-emerald-300" },
   ticket: { tag: "TICKET", color: "text-orange-300" },
   doc: { tag: "DOC", color: "text-slate-300" },
   memory: { tag: "MEMORY", color: "text-pink-300" },
-  chat: { tag: "CHAT", color: "text-cyan-300" },
+  chat: { tag: "CHAT", color: "text-silver" },
   error: { tag: "ERROR", color: "text-red-400" },
-  system: { tag: "SYSTEM", color: "text-slate-400" },
+  system: { tag: "SYSTEM", color: "text-charcoal-muted" },
 };
 
 /** History from the API plus the live websocket tail, de-duplicated, oldest first like a terminal. */
@@ -59,17 +59,17 @@ function ActivityTerminal({ events, loading, error, onRetry }: { events: Activit
   };
 
   return (
-    <section aria-labelledby="terminal-title" className="overflow-hidden rounded-xl bg-navy shadow-pop ring-1 ring-navy">
-      <div className="flex items-center gap-3 border-b border-white/10 bg-navy-800 px-4 py-2.5">
+    <section data-surface="dark" aria-labelledby="terminal-title" className="overflow-hidden rounded-xl bg-charcoal shadow-pop ring-1 ring-charcoal">
+      <div className="flex items-center gap-3 border-b border-white/10 bg-charcoal-800 px-4 py-2.5">
         <span aria-hidden="true" className="flex gap-1.5">
           <span className="size-2.5 rounded-full bg-[#ff5f57]/80" />
           <span className="size-2.5 rounded-full bg-[#febc2e]/80" />
           <span className="size-2.5 rounded-full bg-[#28c840]/80" />
         </span>
-        <h2 id="terminal-title" className="min-w-0 flex-1 truncate font-mono text-xs text-navy-text">
+        <h2 id="terminal-title" className="min-w-0 flex-1 truncate font-mono text-xs text-charcoal-text">
           {propertyId.replace(/^sp-/i, "SP ")} · agent activity
         </h2>
-        <LiveModeIndicator mode={liveMode} className="text-navy-muted!" />
+        <LiveModeIndicator mode={liveMode} className="text-charcoal-muted!" />
       </div>
 
       <div
@@ -80,7 +80,7 @@ function ActivityTerminal({ events, loading, error, onRetry }: { events: Activit
         {loading && events.length === 0 ? (
           <div className="space-y-2" aria-label="Loading activity" role="status">
             {Array.from({ length: 10 }, (_, i) => (
-              <Skeleton key={i} className={cx("h-3 bg-white/5", i % 3 === 0 ? "w-2/3" : "w-full")} />
+              <Skeleton key={i} className={cx("h-3 bg-white/5!", i % 3 === 0 ? "w-2/3" : "w-full")} />
             ))}
           </div>
         ) : error && events.length === 0 ? (
@@ -92,36 +92,36 @@ function ActivityTerminal({ events, loading, error, onRetry }: { events: Activit
           </div>
         ) : (
           <ol role="log" aria-live="polite" aria-label="Agent activity" className="space-y-1.5">
-            {events.length === 0 ? <li className="text-slate-500"># No activity yet. Simulate an inbound message to wake the agent.</li> : null}
+            {events.length === 0 ? <li className="text-charcoal-muted"># No activity yet. Simulate an inbound message to wake the agent.</li> : null}
             {events.map((event) => {
               const kind = KINDS[event.kind] ?? KINDS.system;
               return (
                 <li key={event.id} className="grid animate-fade-in grid-cols-[auto_minmax(0,1fr)] gap-x-3 sm:grid-cols-[auto_9ch_minmax(0,1fr)]">
-                  <time dateTime={event.at} title={formatDateTime(event.at)} className="text-slate-500 tabular-nums">
+                  <time dateTime={event.at} title={formatDateTime(event.at)} className="text-charcoal-muted tabular-nums">
                     {formatClock(event.at)}
                   </time>
                   <span className={cx("hidden font-semibold sm:inline", kind.color)}>{kind.tag}</span>
-                  <span className="min-w-0 break-words text-slate-100">
+                  <span className="min-w-0 break-words text-white/90">
                     <span className={cx("mr-2 font-semibold sm:hidden", kind.color)}>{kind.tag}</span>
                     {event.summary}
-                    {event.detail ? <span className="block text-slate-400">{event.detail}</span> : null}
+                    {event.detail ? <span className="block text-charcoal-muted">{event.detail}</span> : null}
                   </span>
                 </li>
               );
             })}
-            <li className="pt-1 text-teal-300">
+            <li className="pt-1 text-white">
               {busy ? (
                 <span>
-                  <span className="text-slate-500">▸ </span>
+                  <span className="text-charcoal-muted">▸ </span>
                   {busy.label ?? "working"}
                   <span aria-hidden="true" className="ml-1 inline-block animate-blink">
                     █
                   </span>
                 </span>
               ) : (
-                <span className="text-slate-400">
+                <span className="text-charcoal-muted">
                   {propertyId}:~$
-                  <span aria-hidden="true" className="ml-1.5 inline-block animate-blink text-slate-300">
+                  <span aria-hidden="true" className="ml-1.5 inline-block animate-blink text-silver">
                     █
                   </span>
                 </span>
@@ -162,7 +162,7 @@ function StatusCard({ threads }: { threads: Thread[] | undefined }) {
 
   return (
     <Card>
-      <CardHeader title="Status" as="h3" leading={<Icon name="cpu" className="mt-1 size-4 text-muted" />} />
+      <CardHeader title="Status" as="h3" leading={<Icon name="cpu" className="mt-1 size-4 text-taupe" />} />
       <dl className="divide-y divide-line px-5 py-1">
         {rows.map(([label, value]) => (
           <div key={label} className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
@@ -189,7 +189,7 @@ function FilesCard({ docs, loading }: { docs: DocMeta[] | undefined; loading: bo
       <CardHeader
         title="Files on this computer"
         as="h3"
-        leading={<Icon name="folder" className="mt-1 size-4 text-muted" />}
+        leading={<Icon name="folder" className="mt-1 size-4 text-taupe" />}
         description={docs ? `${docs.length} documents · ${indexed} fully indexed` : undefined}
       />
       <div className="px-5 py-4">
@@ -203,8 +203,8 @@ function FilesCard({ docs, loading }: { docs: DocMeta[] | undefined; loading: bo
                   <span className="truncate text-ink-soft">{folder}</span>
                   <span className="font-mono text-muted tabular-nums">{n}</span>
                 </div>
-                <div className="mt-1 h-1.5 rounded-full bg-subtle ring-1 ring-line ring-inset" aria-hidden="true">
-                  <div className="h-full rounded-full bg-accent/70" style={{ width: `${(n / max) * 100}%` }} />
+                <div className="mt-1 h-1.5 bg-sunken" aria-hidden="true">
+                  <div className="h-full bg-accent" style={{ width: `${(n / max) * 100}%` }} />
                 </div>
               </li>
             ))}
@@ -256,7 +256,7 @@ function MemoryCard() {
       <CardHeader
         title="Memory"
         as="h3"
-        leading={<Icon name="bookmark" className="mt-1 size-4 text-muted" />}
+        leading={<Icon name="bookmark" className="mt-1 size-4 text-taupe" />}
         description="Standing facts the agent reads before every task."
       />
       <form onSubmit={add} className="border-b border-line px-5 py-4">

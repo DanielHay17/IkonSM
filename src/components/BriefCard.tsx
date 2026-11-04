@@ -37,7 +37,7 @@ function Highlights({ brief }: { brief: PortfolioBrief }) {
           <li key={`${h.propertyId}-${i}`}>
             <Link
               href={paths.building(h.propertyId)}
-              className="inline-flex max-w-full items-center gap-2 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+              className="inline-flex max-w-full items-center gap-2 rounded-lg border border-line-strong bg-surface px-2.5 py-1.5 text-[13px] text-ink-soft transition-colors hover:border-ink hover:text-ink"
             >
               {h.priority ? <PriorityBadge priority={h.priority} /> : <Badge tone="amber">Approval</Badge>}
               <span className="font-medium text-ink">{card ? propertyLabel(card.profile) : labelFromId(h.propertyId)}</span>
@@ -79,13 +79,13 @@ export function BriefCard({ brief, loading, error, onRetry, onRefreshed, linkToC
 
   return (
     <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line bg-gradient-to-b from-accent-soft/60 to-transparent px-5 py-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
         <div className="flex items-start gap-3">
-          <span className="grid size-9 place-items-center rounded-lg bg-accent text-white shadow-sm">
+          <span className="grid size-9 shrink-0 place-items-center bg-charcoal text-white">
             <Icon name="sparkles" className="size-[18px]" />
           </span>
           <div>
-            <h2 className="text-[15px] font-semibold text-ink">Chief of Staff brief</h2>
+            <h2 className="heading-display text-[13px] leading-6 text-ink">Chief of Staff brief</h2>
             <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[13px] text-muted">
               {brief ? (
                 <>
@@ -111,7 +111,7 @@ export function BriefCard({ brief, loading, error, onRetry, onRefreshed, linkToC
         </div>
         <div className="flex items-center gap-2">
           {linkToChief ? (
-            <Link href={paths.chiefOfStaff()} className="hidden h-8 items-center gap-1 rounded-lg px-3 text-[13px] font-medium text-ink-soft hover:bg-ink/5 hover:text-ink sm:inline-flex">
+            <Link href={paths.chiefOfStaff()} className="hidden h-8 items-center gap-1 px-3 text-[13px] font-medium text-ink-soft hover:bg-ink/5 hover:text-ink sm:inline-flex">
               Ask the Chief of Staff <Icon name="arrowRight" className="size-3.5" />
             </Link>
           ) : null}
@@ -140,7 +140,7 @@ export function BriefCard({ brief, loading, error, onRetry, onRefreshed, linkToC
               <RichText text={brief.text} />
             )}
             {linkToChief ? (
-              <Link href={paths.chiefOfStaff()} className="mt-2 inline-flex items-center gap-1 text-[13px] font-medium text-accent hover:underline">
+              <Link href={paths.chiefOfStaff()} className="mt-2 inline-flex items-center gap-1 text-[13px] font-medium link-brand">
                 Read the full brief <Icon name="arrowRight" className="size-3.5" />
               </Link>
             ) : null}

@@ -32,7 +32,7 @@ function Stat({ label, value, alert }: { label: string; value: number; alert?: b
   return (
     <div className="min-w-0">
       <dt className="truncate text-xs text-muted">{label}</dt>
-      <dd className={`mt-0.5 text-lg font-semibold tabular-nums ${alert && value > 0 ? "text-red-700" : "text-ink"}`}>{value}</dd>
+      <dd className={`heading-display mt-1 text-lg leading-6 tabular-nums ${alert && value > 0 ? "text-red-700" : "text-ink"}`}>{value}</dd>
     </div>
   );
 }
@@ -62,13 +62,13 @@ function BuildingHeader({
             <span aria-current="page">SP {profile.spNumber}</span>
           </nav>
           <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-[26px]">SP {profile.spNumber}</h1>
+            <h1 className="heading-display text-[26px] leading-[1.05] text-ink sm:text-[32px]">SP {profile.spNumber}</h1>
             <PropertyStatusPill status={profile.status} />
             <AiStatusPill online={context.aiOnline} ai={context.ai} />
           </div>
           <p className="mt-1 text-[15px] text-ink-soft">
             {propertyAddress(profile)}
-            {profile.lots ? <span className="text-muted"> · {plural(profile.lots, "lot")}</span> : null}
+            {profile.lots ? <span className="whitespace-nowrap text-muted"> · {plural(profile.lots, "lot")}</span> : null}
           </p>
           {profile.notes ? <p className="mt-1 hidden text-[13px] text-amber-800 sm:block">{profile.notes}</p> : null}
           <div className="mt-2.5 hidden flex-wrap items-center gap-x-1 gap-y-1 sm:flex">
@@ -166,7 +166,7 @@ export function BuildingPage({ propertyId, tab, threadId }: { propertyId: string
   }, [live.state, cardCounts, reloadPortfolio]);
 
   useEffect(() => {
-    if (profile) document.title = `${propertyLabel(profile)} · Ikon Command Hub`;
+    if (profile) document.title = `${propertyLabel(profile)} · IKON SM Command Hub`;
   }, [profile]);
 
   const context = useMemo<BuildingContextValue | null>(
@@ -195,7 +195,7 @@ export function BuildingPage({ propertyId, tab, threadId }: { propertyId: string
           icon="building"
           title="Building not found"
           description={`There's no scheme "${propertyId}" in the portfolio.`}
-          action={<Link href={paths.portfolio()} className="text-sm font-medium text-accent hover:underline">Back to portfolio</Link>}
+          action={<Link href={paths.portfolio()} className="text-sm font-medium link-brand">Back to portfolio</Link>}
         />
       );
     }

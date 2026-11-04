@@ -48,8 +48,8 @@ export function TriagePanel({ triage }: { triage: Triage }) {
   return (
     <Card>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-3.5">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
-          <Icon name="bolt" className="size-4 text-accent" />
+        <h3 className="heading-display flex items-center gap-2 text-[13px] leading-6 text-ink">
+          <Icon name="bolt" className="size-4 text-taupe" />
           Triage
         </h3>
         <div className="flex flex-wrap items-center gap-2">
@@ -90,7 +90,7 @@ export function TriagePanel({ triage }: { triage: Triage }) {
             <ul className="flex flex-wrap gap-1.5" aria-label="Allocate to">
               {triage.allocateTo.map((role) => (
                 <li key={role}>
-                  <span className="inline-flex items-center rounded-full border border-line-strong bg-surface px-2.5 py-0.5 text-xs font-medium text-ink-soft">
+                  <span className="inline-flex items-center border border-line-input bg-surface px-2 py-0.5 text-xs font-medium text-ink">
                     {ASSIGNEE_LABELS[role]}
                   </span>
                 </li>

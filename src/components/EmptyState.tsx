@@ -16,10 +16,10 @@ interface EmptyStateProps {
 export function EmptyState({ icon = "inbox", title, description, action, compact, className }: EmptyStateProps) {
   return (
     <div className={cx("flex flex-col items-center justify-center text-center", compact ? "px-4 py-8" : "px-6 py-14", className)}>
-      <div className="mb-3 grid size-11 place-items-center rounded-xl border border-line bg-subtle text-muted">
+      <div className="mb-3.5 grid size-11 place-items-center border border-line-strong bg-surface text-taupe">
         <Icon name={icon} className="size-5" />
       </div>
-      <p className="text-sm font-semibold text-ink">{title}</p>
+      <p className="heading-display text-[13px] leading-5 text-ink">{title}</p>
       {description ? <div className="mt-1 max-w-sm text-[13px] text-muted">{description}</div> : null}
       {action ? <div className="mt-4">{action}</div> : null}
     </div>
@@ -39,7 +39,7 @@ export function ErrorState({
 }) {
   return (
     <div role="alert" className={cx("flex flex-col items-center text-center", compact ? "px-4 py-8" : "px-6 py-14")}>
-      <div className="mb-3 grid size-11 place-items-center rounded-xl border border-red-200 bg-red-50 text-red-700">
+      <div className="mb-3 grid size-11 place-items-center border border-red-200 bg-red-50 text-red-700">
         <Icon name="alert" className="size-5" />
       </div>
       <p className="text-sm font-semibold text-ink">{title}</p>

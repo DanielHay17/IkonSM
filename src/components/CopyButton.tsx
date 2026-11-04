@@ -55,7 +55,7 @@ export function CopyButton({ text, label, tone = "light", className }: CopyButto
       title={status}
       className={cx(
         "relative inline-grid size-7 shrink-0 place-items-center rounded-md transition-colors",
-        tone === "light" ? "text-muted hover:bg-ink/5 hover:text-ink" : "text-navy-text hover:bg-white/10 hover:text-white",
+        tone === "light" ? "text-muted hover:bg-ink/5 hover:text-ink" : "text-charcoal-text hover:bg-white/10 hover:text-white",
         state === "copied" && "text-emerald-600",
         className,
       )}

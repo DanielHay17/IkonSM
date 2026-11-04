@@ -201,12 +201,12 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
                 type="button"
                 onClick={() => setForm(preset.input)}
                 className={
-                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-colors " +
+                  "inline-flex items-center gap-1.5 border px-3 py-1.5 text-[13px] font-medium transition-colors " +
                   (preset.tone === "red"
                     ? "border-red-200 bg-red-50 text-red-800 hover:bg-red-100"
                     : preset.tone === "amber"
                       ? "border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100"
-                      : "border-line-strong bg-surface text-ink-soft hover:bg-subtle hover:text-ink")
+                      : "border-line-input bg-surface text-ink-soft hover:border-ink hover:text-ink")
                 }
               >
                 {preset.label === "Prompt-injection attempt" ? <Icon name="shield" className="size-3.5" /> : null}

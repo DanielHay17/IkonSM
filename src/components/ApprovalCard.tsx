@@ -124,7 +124,7 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
           ) : null}
           <h3 className="text-[15px] leading-snug font-semibold text-ink">{approval.title}</h3>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <Badge tone={approval.kind === "dispatch_contractor" ? "violet" : "sky"} icon={approval.kind === "dispatch_contractor" ? "wrench" : "mail"}>
+            <Badge tone={approval.kind === "dispatch_contractor" ? "charcoal" : "accent"} icon={approval.kind === "dispatch_contractor" ? "wrench" : "mail"}>
               {KIND_LABEL[approval.kind]}
             </Badge>
             <DraftEngineBadge approval={approval} />
@@ -150,7 +150,7 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
       <div className="space-y-4 px-5 py-4">
         {approval.rationale ? (
           <p className="flex gap-2 text-[13px] text-ink-soft">
-            <Icon name="sparkles" className="mt-0.5 size-3.5 text-accent" />
+            <Icon name="sparkles" className="mt-0.5 size-3.5 shrink-0 text-taupe" />
             <span>
               <span className="font-medium text-ink">Why: </span>
               {approval.rationale}
@@ -229,7 +229,7 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
                 <span className="font-medium text-amber-800">Edited: your changes will be sent.</span>
                 <button
                   type="button"
-                  className="font-medium text-accent hover:underline"
+                  className="font-medium link-brand"
                   onClick={() => {
                     setSubject(approval.draft.subject);
                     setBody(approval.draft.body);

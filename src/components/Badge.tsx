@@ -2,16 +2,17 @@ import type { ReactNode } from "react";
 import { cx } from "../lib/cx";
 import { Icon, type IconName } from "./Icon";
 
-export type BadgeTone = "neutral" | "accent" | "red" | "amber" | "slate" | "green" | "navy" | "violet" | "sky";
+export type BadgeTone = "neutral" | "accent" | "red" | "amber" | "slate" | "green" | "charcoal" | "violet" | "sky";
 
 const TONES: Record<BadgeTone, string> = {
-  neutral: "bg-[#f1efea] text-ink-soft ring-line",
-  accent: "bg-accent-soft text-accent-strong ring-accent/20",
+  neutral: "bg-canvas text-ink-soft ring-line-strong",
+  // Brand outline: white with a charcoal keyline, like the website's outline button.
+  accent: "bg-surface text-ink ring-ink/70",
   red: "bg-red-50 text-red-800 ring-red-200",
   amber: "bg-amber-50 text-amber-900 ring-amber-200",
-  slate: "bg-slate-100 text-slate-700 ring-slate-200",
+  slate: "bg-sunken text-ink-soft ring-line-strong",
   green: "bg-emerald-50 text-emerald-800 ring-emerald-200",
-  navy: "bg-navy text-white ring-navy",
+  charcoal: "bg-charcoal text-white ring-charcoal",
   violet: "bg-violet-50 text-violet-800 ring-violet-200",
   sky: "bg-sky-50 text-sky-800 ring-sky-200",
 };
@@ -21,9 +22,9 @@ const DOTS: Record<BadgeTone, string> = {
   accent: "bg-accent",
   red: "bg-red-600",
   amber: "bg-amber-500",
-  slate: "bg-slate-500",
+  slate: "bg-taupe",
   green: "bg-emerald-500",
-  navy: "bg-white",
+  charcoal: "bg-white",
   violet: "bg-violet-500",
   sky: "bg-sky-500",
 };
@@ -59,13 +60,23 @@ export function Badge({ tone = "neutral", icon, dot, solid, mono, title, classNa
 }
 
 /** A small count bubble (nav items, tabs). */
-export function CountBubble({ count, tone = "neutral", label }: { count: number; tone?: "neutral" | "red" | "accent" | "dark"; label?: string }) {
+export function CountBubble({
+  count,
+  tone = "neutral",
+  label,
+}: {
+  count: number;
+  /** "inverse" is for charcoal surfaces: a white bubble with charcoal digits. */
+  tone?: "neutral" | "red" | "accent" | "dark" | "inverse";
+  label?: string;
+}) {
   if (count <= 0) return null;
   const tones = {
-    neutral: "bg-ink/[0.06] text-ink-soft",
+    neutral: "bg-ink/[0.07] text-ink-soft",
     red: "bg-red-600 text-white",
     accent: "bg-accent text-white",
     dark: "bg-white/12 text-white",
+    inverse: "bg-white text-charcoal",
   } as const;
   return (
     <span

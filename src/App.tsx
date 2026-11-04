@@ -1,8 +1,9 @@
 import { useEffect } from "react";
 import { AppShell } from "./components/AppShell";
 import { ErrorState } from "./components/EmptyState";
-import { PageSpinner } from "./components/Spinner";
+import { Spinner } from "./components/Spinner";
 import { ToastProvider } from "./components/Toast";
+import { Logo } from "./components/Wordmark";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { BuildingPage } from "./pages/BuildingPage";
 import { ChiefOfStaffPage } from "./pages/ChiefOfStaffPage";
@@ -14,7 +15,7 @@ import { SessionProvider, type SessionStatus } from "./providers/SessionProvider
 import { useRoute, type Route } from "./router";
 import type { SessionInfo } from "../shared/types";
 
-const APP_TITLE = "Ikon Command Hub";
+const APP_TITLE = "IKON SM Command Hub";
 const PAGE_TITLES: Partial<Record<Route["name"], string>> = {
   portfolio: "Portfolio",
   approvals: "Approvals",
@@ -61,14 +62,19 @@ function Hub() {
 function SessionGate(state: SessionStatus, controls: { retry: () => void; setSession: (s: SessionInfo) => void }) {
   if (state.status === "loading") {
     return (
-      <div className="grid min-h-dvh place-items-center">
-        <PageSpinner label="Opening the command hub" />
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-6 px-4">
+        <Logo tone="dark" className="w-[180px]" />
+        <p className="flex items-center gap-3 text-sm text-muted">
+          <Spinner className="size-5 text-accent" label={null} />
+          Opening the command hub…
+        </p>
       </div>
     );
   }
   if (state.status === "error") {
     return (
-      <div className="grid min-h-dvh place-items-center px-4">
+      <div className="flex min-h-dvh flex-col items-center justify-center px-4">
+        <Logo tone="dark" className="w-[180px]" />
         <ErrorState error={state.error} onRetry={controls.retry} title="Couldn't reach the command hub" />
       </div>
     );
