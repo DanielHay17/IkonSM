@@ -15,6 +15,7 @@ import { parse as parseCookies, type CookieOptions } from "hono/utils/cookie";
 import { z } from "zod";
 import type { SessionInfo } from "../shared/types";
 import { aiInfo, aiOnline } from "./ai/client";
+import { aiSwitchInfo, readAiSwitch, withAiSwitch } from "./ai/switch";
 import { readJson, type AppEnv } from "./http";
 
 export const SESSION_COOKIE = "ikon_session";
@@ -243,10 +244,20 @@ async function checkLoginRate(env: Env, ip: string | undefined): Promise<void> {
 /** GET /session, POST /login, POST /logout (mounted under /api; logout is behind requireStaff). */
 export const authRoutes = new Hono<AppEnv>();
 
-authRoutes.get("/session", async (c) => c.json(sessionInfo(c.env, await staffFromRequest(c.env, c.req.raw))));
+authRoutes.get("/session", async (c) => {
+  const staff = await staffFromRequest(c.env, c.req.raw);
+  if (staff === null) return c.json(sessionInfo(c.env, null));
+  return c.json(await sessionWithSwitch(c.env, staff));
+});
+
+/** Session info for a signed-in member of staff, with the hub-wide AI switch applied. */
+export async function sessionWithSwitch(env: Env, staffName: string): Promise<SessionInfo> {
+  const on = await readAiSwitch(env);
+  return { ...sessionInfo(withAiSwitch(env, on), staffName), aiSwitch: aiSwitchInfo(env, on) };
+}
 
 authRoutes.post("/login", async (c) => {
-  if (!authRequired(c.env)) return c.json(sessionInfo(c.env, DEMO_STAFF_NAME));
+  if (!authRequired(c.env)) return c.json(await sessionWithSwitch(c.env, DEMO_STAFF_NAME));
   if (!configured(c.env.HUB_PASSCODE) || !sessionSecret(c.env)) {
     throw new HTTPException(503, { message: "Passcode login is not set up on this server (HUB_PASSCODE is empty)" });
   }
@@ -261,7 +272,7 @@ authRoutes.post("/login", async (c) => {
 
   const token = await createSessionToken(c.env, name);
   setCookie(c, SESSION_COOKIE, token, cookieOptions(c.req.url, SESSION_TTL_SECONDS));
-  return c.json(sessionInfo(c.env, name));
+  return c.json(await sessionWithSwitch(c.env, name));
 });
 
 authRoutes.post("/logout", (c) => {

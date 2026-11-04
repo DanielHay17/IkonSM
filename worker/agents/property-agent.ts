@@ -50,6 +50,8 @@ import type {
 import { engineLabel } from "../../shared/engines";
 import { AgentRunError, runAgent, type ToolHost } from "../ai/agent-loop";
 import { aiInfo, aiOnline, aiProvider, offlineReason, perthDate, perthShort } from "../ai/client";
+import { readAiSwitch, withAiSwitch } from "../ai/switch";
+import type { DemoItem } from "../seed/demo";
 import { draftReply as composeDraft } from "../ai/drafting";
 import { propertySystemPrompt } from "../ai/prompts";
 import { triageMessage } from "../ai/triage";
@@ -265,7 +267,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     return {
       profile: this.profile(),
       counts: this.computeCounts(),
-      aiOnline: aiOnline(this.env),
+      aiOnline: aiOnline(await this.aiEnv()),
       p1Threads: this.openP1Threads(),
       recentThreads: this.selectThreads("ORDER BY updated_at DESC LIMIT 20"),
       pendingApprovals: this.selectApprovals("WHERE status = 'pending' ORDER BY created_at DESC"),
@@ -325,7 +327,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
    */
   async ingestMessage(
     input: InboundInput,
-    opts: { process?: "now" | "background"; newThread?: boolean; limit?: InboundLimit } = {},
+    opts: { process?: "now" | "background"; newThread?: boolean; limit?: InboundLimit; aiOff?: boolean } = {},
   ): Promise<{ threadId: string; messageId: string }> {
     const inbound = normaliseInbound(input);
     const duplicate = inbound.messageId ? this.findInboundByMessageId(inbound.messageId) : null;
@@ -368,7 +370,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
 
     const limit = opts.limit ?? { limited: false, reason: null };
     if (opts.process === "background") await this.queue("processThreadTask", { threadId: thread.id, limit });
-    else await this.processThread(thread.id, limit);
+    else await this.processThread(thread.id, limit, { aiOff: opts.aiOff === true });
     return { threadId: thread.id, messageId: message.id };
   }
 
@@ -378,10 +380,14 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
   }
 
   /** Triage -> work order -> reply approval -> dispatch approval. Logs failures instead of throwing. */
-  async processThread(threadId: string, limit: InboundLimit = { limited: false, reason: null }): Promise<void> {
+  async processThread(
+    threadId: string,
+    limit: InboundLimit = { limited: false, reason: null },
+    opts: { aiOff?: boolean } = {},
+  ): Promise<void> {
     await this.serialize(`thread:${threadId}`, async () => {
       try {
-        await this.runPipeline(threadId, limit);
+        await this.runPipeline(threadId, limit, await this.aiEnv(opts.aiOff === true));
       } catch (err) {
         this.logActivity("error", "Could not finish processing a message", errorText(err), threadId);
       } finally {
@@ -394,14 +400,14 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     const thread = this.requireThread(threadId);
     const latest = this.latestInbound(threadId);
     if (!latest) throw new Error("Thread has no inbound message to triage");
-    const triage = await this.triageThread(thread, latest);
+    const triage = await this.triageThread(thread, latest, false, await this.aiEnv());
     this.refreshThreadStatus(threadId);
     this.touch();
     return triage;
   }
 
   async draftReply(threadId: string, instructions: string | null, actor: string): Promise<Approval> {
-    const approval = await this.composeReplyApproval(threadId, optionalText(instructions, 4000), actor);
+    const approval = await this.composeReplyApproval(threadId, optionalText(instructions, 4000), actor, await this.aiEnv());
     this.refreshThreadStatus(threadId);
     this.touch();
     return approval;
@@ -474,6 +480,69 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     );
     this.touch();
     return { threads: ids.length, approvals, tickets };
+  }
+
+  /**
+   * Demo scenario: replaces this building's simulated messages with `items`, filed through the normal pipeline
+   * on the rules engine (quick and repeatable whatever the AI switch says), then backdated, with their work
+   * orders moved along the board. Real mail is untouched; "Clear simulated messages" removes it all.
+   */
+  async loadDemo(items: DemoItem[], actor: string): Promise<{ threads: number; tickets: number }> {
+    await this.resetSimulated(actor);
+    let tickets = 0;
+    // Oldest first, so ticket numbers run in the order the work came in.
+    for (const item of [...items].sort((a, b) => b.hoursAgo - a.hoursAgo)) {
+      const { threadId } = await this.ingestMessage({ ...item.input, simulated: true }, { process: "now", newThread: true, aiOff: true });
+      const thread = this.findThread(threadId);
+      if (!thread) continue;
+      let ticket = thread.ticketId ? this.findTicket(thread.ticketId) : null;
+      if (item.workOrder && !ticket && thread.triage) {
+        const triage = thread.triage;
+        const contractor = pickContractor(this.contactRows("contractor"), triage.contractorTrade, triage.priority);
+        ticket = this.insertTicket(
+          {
+            title: truncate(item.input.subject, 120),
+            description: item.input.text,
+            category: triage.category === "insurance" ? "insurance" : "maintenance",
+            priority: triage.priority,
+            assigneeRole: contractor ? "contractor" : "strata_manager",
+            contractorId: contractor?.id ?? null,
+            threadId,
+            dueAt: ticketDueAt(triage.priority),
+          },
+          "agent",
+        );
+      }
+      if (item.workOrder && ticket) {
+        if (ticket.status !== item.workOrder) ticket = await this.updateTicket(ticket.id, { status: item.workOrder }, actor);
+        tickets++;
+      }
+      if (item.close) await this.closeThread(threadId, actor);
+      this.backdate(threadId, ticket?.id ?? null, item.hoursAgo);
+    }
+    this.logActivity("system", `${actor} loaded the demo scenario: ${items.length} simulated message${items.length === 1 ? "" : "s"}, ${tickets} work order${tickets === 1 ? "" : "s"}`);
+    this.touch();
+    return { threads: items.length, tickets };
+  }
+
+  /** Moves a demo thread (its messages, drafts, work order and log lines) back in time. */
+  private backdate(threadId: string, ticketId: string | null, hoursAgo: number): void {
+    const hours = Math.max(0, Number(hoursAgo) || 0);
+    if (hours === 0) return;
+    const at = new Date(Date.now() - hours * 3_600_000).toISOString();
+    // Later steps (a work order moved along, the thread closed) happened about halfway between then and now.
+    const later = new Date(Date.now() - (hours / 2) * 3_600_000).toISOString();
+    this.ctx.storage.transactionSync(() => {
+      this.sql`UPDATE threads SET created_at = ${at}, updated_at = ${later} WHERE id = ${threadId}`;
+      this.sql`UPDATE messages SET created_at = ${at} WHERE thread_id = ${threadId}`;
+      this.sql`UPDATE approvals SET created_at = ${at} WHERE thread_id = ${threadId}`;
+      this.sql`UPDATE approvals SET decided_at = ${later} WHERE thread_id = ${threadId} AND decided_at IS NOT NULL`;
+      this.sql`UPDATE activity SET at = ${at} WHERE ref = ${threadId}`;
+      if (ticketId) {
+        this.sql`UPDATE tickets SET created_at = ${at}, updated_at = ${later} WHERE id = ${ticketId}`;
+        this.sql`UPDATE activity SET at = ${later} WHERE ref = ${ticketId}`;
+      }
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -678,12 +747,12 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
   // Private: pipeline
   // =========================================================================
 
-  private async runPipeline(threadId: string, limit: InboundLimit): Promise<void> {
+  private async runPipeline(threadId: string, limit: InboundLimit, env: Env): Promise<void> {
     const thread = this.findThread(threadId);
     const latest = thread && thread.status !== "closed" ? this.latestInbound(threadId) : null;
     if (!thread || !latest) return;
 
-    const triage = await this.triageThread(thread, latest, limit.limited);
+    const triage = await this.triageThread(thread, latest, limit.limited, env);
     // Re-read after the await: staff may have closed the thread or linked a work order meanwhile.
     const current = this.findThread(threadId);
     if (!current || current.status === "closed") {
@@ -695,7 +764,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     if (limit.limited) {
       this.logActivity("draft", `Draft on request: ${limit.reason}`, "Use Draft reply on the thread to write one.", threadId);
     } else if (shouldDraftReply(triage)) {
-      await this.attempt("draft a reply", threadId, () => this.composeReplyApproval(threadId, null, "agent"));
+      await this.attempt("draft a reply", threadId, () => this.composeReplyApproval(threadId, null, "agent", env));
     } else {
       this.logActivity("draft", replySkipReason(triage), null, threadId);
     }
@@ -711,14 +780,14 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     } else if (work && contractor?.email && !limit.limited) {
       const email = contractor.email;
       await this.attempt("draft the contractor work order", threadId, () =>
-        this.composeDispatchApproval(threadId, triage, work.ticket, contractor, email),
+        this.composeDispatchApproval(threadId, triage, work.ticket, contractor, email, env),
       );
     }
     this.refreshThreadStatus(threadId);
   }
 
   /** Triages the latest inbound message (its sender may differ from the thread's, e.g. a contractor replying). */
-  private async triageThread(thread: Thread, latest: Message, rulesOnly = false): Promise<Triage> {
+  private async triageThread(thread: Thread, latest: Message, rulesOnly: boolean, env: Env): Promise<Triage> {
     const sender = messageSender(latest);
     const label = `Triaging ${channelNoun(latest.channel)} from ${sender.name ?? sender.address}`;
     return this.withBusy(label, async (status) => {
@@ -726,7 +795,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       const context = this.searchIndex(`${latest.subject} ${latest.text.slice(0, 600)}`, 6);
       status(label);
       const triage = await triageMessage(
-        this.env,
+        env,
         {
           property: this.profile(),
           channel: latest.channel,
@@ -774,11 +843,11 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     return { ticket, contractor, created: true };
   }
 
-  private async composeReplyApproval(threadId: string, instructions: string | null, actor: string): Promise<Approval> {
+  private async composeReplyApproval(threadId: string, instructions: string | null, actor: string, env: Env): Promise<Approval> {
     const latest = this.latestInbound(threadId);
     let thread = this.requireThread(threadId);
     if (!thread.triage && latest) {
-      await this.triageThread(thread, latest);
+      await this.triageThread(thread, latest, false, env);
       thread = this.requireThread(threadId);
     }
     const triage = thread.triage;
@@ -798,7 +867,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     }
     const ticket = thread.ticketId ? this.findTicket(thread.ticketId) : null;
     const draft = await this.withBusy(`Drafting reply to ${to.name ?? to.address}`, () =>
-      composeDraft(this.env, {
+      composeDraft(env, {
         property: this.profile(),
         companyName: this.companyName(),
         thread,
@@ -851,11 +920,12 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     ticket: Ticket,
     contractor: Contact,
     email: string,
+    env: Env,
   ): Promise<Approval> {
     const thread = this.requireThread(threadId);
     const to = { address: email.trim().toLowerCase(), name: contractor.name };
     const draft = await this.withBusy(`Drafting work order for ${contractor.name}`, () =>
-      composeDraft(this.env, {
+      composeDraft(env, {
         property: this.profile(),
         companyName: this.companyName(),
         thread,
@@ -1432,8 +1502,9 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     this.logActivity("chat", `${actor} asked: ${truncate(text, 120)}`);
     this.touch();
 
-    if (!aiOnline(this.env)) this.logActivity("chat", "Answered with a document search (AI offline)", offlineReason(this.env));
-    const reply = aiOnline(this.env) ? await this.answerWithAi(text, actor) : this.offlineReply(text, OFFLINE_NOTICE);
+    const env = await this.aiEnv();
+    if (!aiOnline(env)) this.logActivity("chat", "Answered with a document search (AI offline)", offlineReason(env));
+    const reply = aiOnline(env) ? await this.answerWithAi(text, actor) : this.offlineReply(text, OFFLINE_NOTICE);
     const answer = this.insertChat({ role: "assistant", author: null, ...reply });
     this.touch();
     return answer;
@@ -1652,6 +1723,11 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
 
   private companyName(): string {
     return this.env.COMPANY_NAME || "Ikon Strata Management";
+  }
+
+  /** The deployment's AI settings with the hub-wide AI switch applied (worker/ai/switch.ts). */
+  private async aiEnv(forceOff = false): Promise<Env> {
+    return withAiSwitch(this.env, forceOff ? false : await readAiSwitch(this.env));
   }
 
   /** Dynamic SQL (IN lists, optional filters); static queries use this.sql. */

@@ -126,6 +126,15 @@ export function mergeWithRules(ai: Triage, rules: Triage, signals: { paymentChan
   } else if (rules.priority === "P1" && WORK_CATEGORIES.includes(rules.category) && !WORK_CATEGORIES.includes(merged.category)) {
     merged.category = rules.category;
   }
+  if (rules.priority === "P1") {
+    // The rules engine knows these emergencies well: who is responsible, who to involve, and the safety advice.
+    merged.allocateTo = [...rules.allocateTo, ...merged.allocateTo];
+    if (merged.responsibility === "unclear" && rules.responsibility !== "unclear") {
+      merged.responsibility = rules.responsibility;
+      merged.responsibilityReason = rules.responsibilityReason;
+    }
+    if (rules.safetyNotice && !/\b000\b/.test(merged.safetyNotice ?? "")) merged.safetyNotice = rules.safetyNotice;
+  }
   if (merged.priority === "P1") {
     if (!merged.contractorTrade && WORK_CATEGORIES.includes(merged.category)) merged.contractorTrade = rules.contractorTrade;
     // An emergency is never spam: it gets a reply with safety advice and, where there is a trade, a work order.

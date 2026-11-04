@@ -169,9 +169,10 @@ export function BuildingPage({ propertyId, tab, threadId }: { propertyId: string
   const card = portfolio.cardFor(propertyId);
   const profile = overview.data?.profile ?? live.state?.profile ?? card?.profile ?? null;
   const counts = live.state?.counts ?? overview.data?.counts ?? card?.counts ?? EMPTY_COUNTS;
-  const aiOnline = live.state?.aiOnline ?? overview.data?.aiOnline ?? false;
+  // The AI switch is hub-wide, so the session (refreshed when it changes) is the source of truth.
   const { session } = useSession();
-  const ai = live.state?.ai ?? session.ai ?? null;
+  const aiOnline = session.aiOnline;
+  const ai = session.ai ?? null;
 
   // Keep the sidebar's P1 dots and approvals badge in step with this building's live counts.
   const { reload: reloadPortfolio } = portfolio;

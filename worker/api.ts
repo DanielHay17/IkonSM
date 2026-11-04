@@ -18,7 +18,8 @@ import {
   type TicketStatus,
 } from "../shared/types";
 import type { PropertyAgent } from "./agents/property-agent";
-import { authRoutes, requireStaff, staffFromRequest } from "./auth";
+import { CHIEF_OF_STAFF_NAME } from "./ai/switch";
+import { authRoutes, requireStaff, sessionWithSwitch, staffFromRequest } from "./auth";
 import { extractText } from "./docs/extract";
 import { guessMime, r2KeyFor } from "./docs/vault";
 import {
@@ -34,6 +35,7 @@ import {
   type AppEnv,
   type AppVariables,
 } from "./http";
+import { DEMO_SCENARIO } from "./seed/demo";
 import { PORTFOLIO_IDS } from "./seed/portfolio";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +46,7 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
 const MAX_JSON_BYTES = 256 * 1024;
 const DEFAULT_FOLDER = "07 Correspondence" satisfies VaultFolder;
-const CHIEF_OF_STAFF_NAME = "main";
+
 
 const PUBLIC_API_PATHS = new Set(["/api/health", "/api/session", "/api/login"]);
 const UPLOAD_PATH = /^\/api\/properties\/[^/]+\/docs$/;
@@ -149,6 +151,7 @@ const optionalQuery = <S extends z.ZodType>(schema: S) =>
   z.preprocess((value) => (value === "" ? undefined : value), schema.optional());
 
 const chatSchema = z.object({ text: requiredText(4000) });
+const aiSwitchSchema = z.object({ on: z.boolean() });
 const memorySchema = z.object({ text: requiredText(2000) });
 const draftSchema = z.object({ instructions: nullableText(4000) });
 
@@ -505,6 +508,37 @@ api.post("/cos/chat", async (c) => {
 api.delete("/cos/chat", async (c) => {
   await (await chiefOfStaff(c.env)).resetChat(c.var.staffName);
   return c.json({ ok: true });
+});
+
+// Hub settings and demo data ------------------------------------------------
+
+/** The hub-wide AI switch: off is the rules engine and templates; on is the deployment's AI engine. */
+api.post("/settings/ai", async (c) => {
+  const { on } = await readJson(c, aiSwitchSchema);
+  await (await chiefOfStaff(c.env)).setAiSwitch(on, c.var.staffName);
+  return c.json(await sessionWithSwitch(c.env, c.var.staffName));
+});
+
+/** Replaces the simulated messages in the demo buildings with a few days of SAMPLE activity. */
+api.post("/demo/load", async (c) => {
+  const cos = await chiefOfStaff(c.env);
+  if (await cos.ensureSeeded()) portfolioSeeded = true;
+  const results = await Promise.all(
+    Object.entries(DEMO_SCENARIO).map(async ([id, items]) => ({
+      propertyId: id,
+      ...(await (await getAgentByName(c.env.PropertyAgent, id)).loadDemo(items, c.var.staffName)),
+    })),
+  );
+  return c.json({ buildings: results });
+});
+
+/** Deletes simulated messages (with their drafts and work orders) in every building. Real mail is untouched. */
+api.post("/demo/clear", async (c) => {
+  if (await (await chiefOfStaff(c.env)).ensureSeeded()) portfolioSeeded = true;
+  const results = await Promise.all(
+    PORTFOLIO_IDS.map(async (id) => ({ propertyId: id, ...(await (await getAgentByName(c.env.PropertyAgent, id)).resetSimulated(c.var.staffName)) })),
+  );
+  return c.json({ buildings: results.filter((r) => r.threads > 0) });
 });
 
 api.route("/properties/:id", property);

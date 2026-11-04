@@ -311,6 +311,31 @@ async function workersDraft(env: Env, input: DraftInput): Promise<DraftResult | 
   );
 }
 
+/**
+ * Small models often return an email as one run-on paragraph. Splits it into a greeting line, paragraphs of
+ * two or three sentences and a sign-off. Bodies that already have line breaks are left alone.
+ */
+export function paragraphs(body: string): string {
+  const text = body.trim();
+  if (text.includes("\n") || text.length < 280) return text;
+  const greeting = text.match(/^(?:hi|hello|dear|good (?:morning|afternoon|evening))\b[^,.!\n]{0,60},\s*/i)?.[0] ?? "";
+  let rest = text.slice(greeting.length);
+  const signOff = rest.match(/\s*\b(?:kind regards|warm regards|best regards|regards|many thanks|sincerely)[,.!]?\s+[^.!?]*$/i)?.[0] ?? "";
+  if (signOff) rest = rest.slice(0, rest.length - signOff.length);
+  const sentences = rest.match(/[^.!?]+(?:[.!?]+["')\]]?|$)\s*/g)?.map((x) => x.trim()).filter(Boolean) ?? [rest.trim()];
+  const blocks: string[] = [];
+  for (let i = 0; i < sentences.length; i += 2) {
+    // A short trailing sentence joins the paragraph before it.
+    if (i + 3 === sentences.length) {
+      blocks.push(sentences.slice(i).join(" "));
+      break;
+    }
+    blocks.push(sentences.slice(i, i + 2).join(" "));
+  }
+  const tail = signOff.trim().replace(/^((?:kind|warm|best) regards|regards|many thanks|sincerely)[,.!]?\s+/i, (m, word: string) => `${word},\n`);
+  return [greeting.trim(), ...blocks, tail].filter(Boolean).join("\n\n");
+}
+
 /** An emergency reply that never mentions 000 gets the triage safety notice straight after the greeting. */
 function withSafetyNotice(body: string, input: DraftInput): string {
   if (input.purpose !== "reply" || input.triage.priority !== "P1" || /\b000\b/.test(body)) return body;
@@ -326,7 +351,7 @@ async function finishDraft(
   raw: { subject: string; body: string; rationale: string; citations: Citation[] },
   engine: Pick<DraftResult, "engine" | "model" | "provider">,
 ): Promise<DraftResult> {
-  const body = withSafetyNotice(ensureSignOff(enforceWaTerminology(raw.body), input), input);
+  const body = withSafetyNotice(ensureSignOff(paragraphs(enforceWaTerminology(raw.body)), input), input);
   const fallbackSubject = input.purpose === "reply" ? replySubject(input.thread.subject) : dispatchSubject(input);
   const subject = enforceWaTerminology(raw.subject.replace(/\s+/g, " ").trim()) || fallbackSubject;
   let rationale = raw.rationale;

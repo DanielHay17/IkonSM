@@ -51,7 +51,7 @@ Sign in with the `HUB_PASSCODE` from `.dev.vars` and any name. The pilot buildin
 
 ```bash
 npm run typecheck   # app, worker and test tsconfigs
-npm test            # 186 tests in workerd (vitest + @cloudflare/vitest-plugin)
+npm test            # 191 tests in workerd (vitest + @cloudflare/vitest-plugin)
 ```
 
 The tests cover:
@@ -98,7 +98,15 @@ To sign everyone out, rotate `SESSION_SECRET`. For anything beyond a demo, put t
 
 Models used with Claude: `MODEL_AGENT` (claude-sonnet-5-5) for drafting and chat, and `MODEL_TRIAGE` (claude-haiku-5-5) for triage.
 
-**Which mode for a demo?** Use `off` until Claude is switched on: `npx wrangler deploy --var LLM_PROVIDER:off`. Don't rely on `auto`, which picks Claude or the gateway if any key or gateway secret is set on the Worker.
+**The AI switch.** Signed-in staff can turn AI off and on from the bottom of the sidebar, without a redeploy.
+- Off is the rules engine and templates.
+- On is whatever `LLM_PROVIDER` resolves to.
+- It is stored in the Chief of Staff agent (`worker/ai/switch.ts`), so every building agent follows it.
+- It only appears when the deployment has an engine to switch on. For the demo, deploy with `--var LLM_PROVIDER:workers-ai` and use the switch.
+
+**Demo scenario.** **Simulate inbound → Load demo scenario** (`POST /api/demo/load`) replaces the simulated messages at SP 26707 and three other buildings with a few days of SAMPLE activity (`worker/seed/demo.ts`). It always uses the rules engine, and **Clear simulated messages** (`POST /api/demo/clear`) removes it everywhere.
+
+**Which mode for a demo?** Deploy with `workers-ai` so the switch is there, then choose with the switch. Don't rely on `auto`, which picks Claude or the gateway if any key or gateway secret is set on the Worker.
 
 In a live test of `workers-ai`, Llama 4 Scout:
 - left the water main out of emergency replies, and sometimes said it was "not in our records";

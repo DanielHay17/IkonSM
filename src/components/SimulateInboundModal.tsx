@@ -7,6 +7,7 @@ import { FormError } from "./EmptyState";
 import { SelectField, TextAreaField, TextField } from "./Field";
 import { Icon } from "./Icon";
 import { ConfirmDialog, Modal } from "./Modal";
+import { usePortfolio } from "../providers/PortfolioProvider";
 import { useToast } from "./Toast";
 
 type SimulateChannel = Extract<Channel, "email" | "sms" | "portal">;
@@ -127,6 +128,8 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmDemo, setConfirmDemo] = useState(false);
+  const { reload: reloadPortfolio } = usePortfolio();
 
   useEffect(() => {
     if (open) {
@@ -157,12 +160,24 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
 
   const addressLabel = form.channel === "sms" ? "Mobile number" : "Email address";
 
+  // The demo scenario spans four buildings, so clearing covers every building too.
   const clearSimulated = async () => {
-    const result = await api.resetSimulated(propertyId);
+    const result = await api.clearDemo();
+    const threads = result.buildings.reduce((n, b) => n + b.threads, 0);
     toast.success(
       "Simulated messages cleared",
-      `${result.threads} thread${result.threads === 1 ? "" : "s"}, ${result.approvals} draft${result.approvals === 1 ? "" : "s"} and ${result.tickets} work order${result.tickets === 1 ? "" : "s"} removed.`,
+      `${threads} thread${threads === 1 ? "" : "s"} removed across ${result.buildings.length} building${result.buildings.length === 1 ? "" : "s"}, with their drafts and work orders.`,
     );
+    void reloadPortfolio();
+  };
+
+  const loadDemo = async () => {
+    const result = await api.loadDemo();
+    const threads = result.buildings.reduce((n, b) => n + b.threads, 0);
+    const tickets = result.buildings.reduce((n, b) => n + b.tickets, 0);
+    toast.success("Demo scenario loaded", `${threads} SAMPLE messages and ${tickets} work orders across ${result.buildings.length} buildings.`);
+    void reloadPortfolio();
+    onClose();
   };
 
   return (
@@ -179,17 +194,15 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
       size="lg"
       footer={
         <>
-          {/* A housekeeping action, not part of this message: small and quiet, and last on a phone. */}
-          <Button
-            variant="dangerQuiet"
-            size="sm"
-            icon="trash"
-            onClick={() => setConfirmClear(true)}
-            disabled={submitting}
-            className="order-last w-full sm:order-first sm:mr-auto sm:w-auto"
-          >
-            Clear simulated messages
-          </Button>
+          {/* Housekeeping, not part of this message: small and quiet, and last on a phone. */}
+          <div className="order-last flex w-full flex-col gap-1 sm:order-first sm:mr-auto sm:w-auto sm:flex-row">
+            <Button variant="ghost" size="sm" icon="sparkles" onClick={() => setConfirmDemo(true)} disabled={submitting}>
+              Load demo scenario
+            </Button>
+            <Button variant="dangerQuiet" size="sm" icon="trash" onClick={() => setConfirmClear(true)} disabled={submitting}>
+              Clear simulated messages
+            </Button>
+          </div>
           <Button variant="secondary" onClick={onClose} disabled={submitting}>
             Cancel
           </Button>
@@ -279,8 +292,17 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
         onClose={() => setConfirmClear(false)}
         onConfirm={clearSimulated}
         title="Clear simulated messages?"
-        description={`Deletes every simulated thread in ${propertyLabel}, with its drafts and work orders. Real email is not touched.`}
+        description="Deletes every simulated thread in every building, with its drafts and work orders. Real email is not touched."
         confirmLabel="Clear simulated messages"
+      />
+      <ConfirmDialog
+        open={confirmDemo}
+        onClose={() => setConfirmDemo(false)}
+        onConfirm={loadDemo}
+        destructive={false}
+        title="Load the demo scenario?"
+        description="Replaces the simulated messages at SP 26707 and three other buildings with a few days of SAMPLE activity: owner emails, drafts waiting for approval and work orders across the board. It uses the rules engine, whatever the AI switch says. Real email is not touched. The burst pipe, prompt injection and s110 presets are left for you to send live."
+        confirmLabel="Load demo scenario"
       />
     </Modal>
   );

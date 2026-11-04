@@ -9,8 +9,9 @@ import { IconButton } from "./Button";
 import { Icon, type IconName } from "./Icon";
 import { Link } from "./Link";
 import { Skeleton } from "./Skeleton";
-import { AiStatusPill, AlertDot } from "./StatusBadges";
+import { AlertDot } from "./StatusBadges";
 import { useToast } from "./Toast";
+import { AiSwitch } from "./AiSwitch";
 import { Wordmark } from "./Wordmark";
 
 function NavItem({
@@ -94,7 +95,7 @@ function SidebarFooter() {
   return (
     <div className="border-t border-white/10 p-4">
       <div className="mb-3 px-1">
-        <AiStatusPill online={session.aiOnline} ai={session.ai} tone="dark" />
+        <AiSwitch />
       </div>
       <div className="flex items-center gap-3 px-1">
         <span

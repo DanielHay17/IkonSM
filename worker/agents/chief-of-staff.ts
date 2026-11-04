@@ -33,6 +33,7 @@ import type {
   Ticket,
 } from "../../shared/types";
 import { aiProvider, makeClient, modelFor, offlineReason, type AiProvider } from "../ai/client";
+import { withAiSwitch } from "../ai/switch";
 import { chiefOfStaffSystemPrompt } from "../ai/prompts";
 import { answerWithSources, lightModeFooter, PORTFOLIO_LIGHT_MODE, workersAiText } from "../ai/workers-ai";
 import { parseInbound } from "../email/inbound";
@@ -628,6 +629,8 @@ function mentionedPropertyIds(text: string): string[] {
 // The agent
 // ===========================================================================
 
+const AI_SWITCH_KEY = "ai_switch";
+
 export class ChiefOfStaffAgent extends Agent<Env, CosState> {
   initialState: CosState = { brief: null, version: 0 };
 
@@ -711,6 +714,27 @@ export class ChiefOfStaffAgent extends Agent<Env, CosState> {
   // Morning brief
   // -------------------------------------------------------------------------
 
+  // -------------------------------------------------------------------------
+  // Hub-wide AI switch (read by the API and every building agent; see worker/ai/switch.ts)
+  // -------------------------------------------------------------------------
+
+  /** Unset means on: the deployment's LLM_PROVIDER applies until someone switches AI off. */
+  async getAiSwitch(): Promise<boolean> {
+    return this.getMeta(AI_SWITCH_KEY) !== "off";
+  }
+
+  async setAiSwitch(on: boolean, actor: string): Promise<boolean> {
+    if (typeof on !== "boolean") throw new Error("on must be true or false");
+    const before = this.getMeta(AI_SWITCH_KEY) !== "off";
+    this.setMeta(AI_SWITCH_KEY, on ? "on" : "off");
+    if (before !== on) {
+      const engine = aiProvider(this.env);
+      this.logActivity("system", on ? `${actor} switched AI on (${engine.label})` : `${actor} switched AI off: rules engine and templates`);
+      this.bumpVersion();
+    }
+    return on;
+  }
+
   /**
    * The current brief. With AI off a rules-based brief costs nothing to rewrite, so it is refreshed when any
    * building has changed since it was written (it bakes in live counts); otherwise it waits for a refresh.
@@ -718,7 +742,7 @@ export class ChiefOfStaffAgent extends Agent<Env, CosState> {
   async getBrief(): Promise<PortfolioBrief | null> {
     const brief = this.state?.brief ?? null;
     // Only when no LLM is in use: then a rewrite is the rules brief again and costs nothing.
-    if (!brief || brief.engine !== "rules" || aiProvider(this.env).kind !== "off") return brief;
+    if (!brief || brief.engine !== "rules" || aiProvider(this.aiEnv()).kind !== "off") return brief;
     const snaps = await this.collect();
     const stale = snaps.some((s) => s.lastActivityAt !== null && s.lastActivityAt > brief.generatedAt);
     return stale ? this.refreshBrief() : brief;
@@ -948,7 +972,7 @@ export class ChiefOfStaffAgent extends Agent<Env, CosState> {
   private async writeBrief(snaps: PropertySnapshot[]): Promise<PortfolioBrief> {
     const now = new Date();
     const base = { generatedAt: now.toISOString(), highlights: briefHighlights(snaps) };
-    const provider = aiProvider(this.env);
+    const provider = aiProvider(this.aiEnv());
     if (provider.kind !== "off") {
       try {
         const written = await this.aiBrief(snaps, now, provider);
@@ -1005,8 +1029,8 @@ export class ChiefOfStaffAgent extends Agent<Env, CosState> {
     this.logActivity("chat", `${actor} asked: ${clip(oneLine(question), 120)}`);
     this.bumpVersion();
 
-    const provider = aiProvider(this.env);
-    if (provider.kind === "off") this.logActivity("chat", "Answered with a rules-based summary (AI offline)", offlineReason(this.env));
+    const provider = aiProvider(this.aiEnv());
+    if (provider.kind === "off") this.logActivity("chat", "Answered with a rules-based summary (AI offline)", offlineReason(this.aiEnv()));
     const reply =
       provider.kind === "off" ? await this.rulesAnswer(question, OFFLINE_NOTICE) : await this.answerWithAi(question, actor, provider);
     const answer = this.insertChat({ role: "assistant", author: null, ...reply });
@@ -1365,6 +1389,11 @@ export class ChiefOfStaffAgent extends Agent<Env, CosState> {
     } catch (err) {
       console.error("chief-of-staff: could not log activity", err);
     }
+  }
+
+  /** The deployment's AI settings with the hub-wide AI switch applied (worker/ai/switch.ts). */
+  private aiEnv(): Env {
+    return withAiSwitch(this.env, this.getMeta(AI_SWITCH_KEY) !== "off");
   }
 
   private getMeta(key: string): string | null {

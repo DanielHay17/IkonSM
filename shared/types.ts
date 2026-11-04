@@ -455,13 +455,24 @@ export interface PortfolioBrief {
   highlights: { propertyId: string; label: string; priority: Priority | null }[];
 }
 
+/** The hub-wide AI switch: staff turn the deployment's AI engine off (rules and templates) and on again. */
+export interface AiSwitchInfo {
+  on: boolean;
+  /** False when the deployment has no AI engine configured (LLM_PROVIDER off or missing keys). */
+  available: boolean;
+  /** The engine the switch turns on, e.g. "Workers AI Llama 4 Scout"; null when unavailable. */
+  engine: string | null;
+}
+
 export interface SessionInfo {
   authenticated: boolean;
   staffName: string | null;
   authRequired: boolean;
   aiOnline: boolean;
-  /** Which LLM provider and model the Worker is configured to use. */
+  /** Which LLM provider and model is in use right now (after the AI switch). */
   ai?: AiInfo;
+  /** Present when signed in. */
+  aiSwitch?: AiSwitchInfo;
   appName: string;
   companyName: string;
   emailDomain: string;

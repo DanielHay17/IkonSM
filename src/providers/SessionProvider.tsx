@@ -44,6 +44,19 @@ export function SessionProvider({
     return () => setUnauthorizedHandler(null);
   }, []);
 
+  // Someone else may flip the hub-wide AI switch: pick it up when this tab comes back into view.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      api.session().then(
+        (session) => setState((s) => (s.status === "ready" && s.session.authenticated && session.authenticated ? { status: "ready", session } : s)),
+        () => {},
+      );
+    };
+    document.addEventListener("visibilitychange", refresh);
+    return () => document.removeEventListener("visibilitychange", refresh);
+  }, []);
+
   const signOut = useCallback(async () => {
     const session = await api.logout();
     setState({ status: "ready", session });
