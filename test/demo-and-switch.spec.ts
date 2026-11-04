@@ -36,6 +36,7 @@ describe("demo scenario", () => {
     const statuses = new Set(tickets.map((t) => t.status));
     for (const status of ["assigned", "in_progress", "waiting", "done"] as const) expect(statuses).toContain(status);
     expect(tickets.every((t) => t.threadId)).toBe(true);
+    expect(tickets.map((t) => t.title)).toContain("Garage roller door won't close");
 
     // The other buildings show the Chief of Staff working across the portfolio.
     for (const id of Object.keys(DEMO_SCENARIO).filter((id) => id !== PILOT)) {

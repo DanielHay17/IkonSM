@@ -514,7 +514,11 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
         );
       }
       if (item.workOrder && ticket) {
-        if (ticket.status !== item.workOrder) ticket = await this.updateTicket(ticket.id, { status: item.workOrder }, actor);
+        // The demo board reads better with the job itself ("Garage roller door won't close") than the triage category.
+        const title = truncate(item.input.subject, 120);
+        if (ticket.status !== item.workOrder || ticket.title !== title) {
+          ticket = await this.updateTicket(ticket.id, { status: item.workOrder, title }, actor);
+        }
         tickets++;
       }
       if (item.close) await this.closeThread(threadId, actor);
