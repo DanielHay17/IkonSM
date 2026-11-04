@@ -1,4 +1,5 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { renderEmailHtml } from "../../shared/email-html";
 import type { Approval, ApprovalDecision, Citation } from "../../shared/types";
 import { api, ApiError } from "../api";
 import { cx } from "../lib/cx";
@@ -10,7 +11,9 @@ import { Card } from "./Card";
 import { inputClasses, textareaClasses } from "./Field";
 import { Icon } from "./Icon";
 import { Link } from "./Link";
-import { ConfirmDialog } from "./Modal";
+import { ConfirmDialog, Modal } from "./Modal";
+import { usePortfolio } from "../providers/PortfolioProvider";
+import { useSession } from "../providers/SessionProvider";
 import { ApprovalStatusBadge, draftEngineText } from "./StatusBadges";
 import { useToast } from "./Toast";
 
@@ -73,6 +76,12 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
   const [body, setBody] = useState(approval.draft.body);
   const [busy, setBusy] = useState<ApprovalDecision["decision"] | null>(null);
   const [confirmReject, setConfirmReject] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const { session } = useSession();
+  const profile = usePortfolio().cardFor(approval.propertyId)?.profile ?? null;
+  // The building's own address, as the recipient sees it.
+  const fromAddress = profile?.emailAddress ?? null;
+  const fromLabel = profile && fromAddress ? `${session.companyName} - SP ${profile.spNumber} <${fromAddress}>` : null;
 
   // A fresh draft for the same card (re-draft) replaces local edits.
   useEffect(() => {
@@ -178,9 +187,21 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
         </p>
 
         <div className="rounded-lg border border-line">
+          {fromLabel ? (
+            <div className="flex items-center gap-2 border-b border-line bg-subtle px-3 py-2 text-[13px]">
+              <span className="w-14 shrink-0 text-muted">From</span>
+              <span className="min-w-0 text-ink-soft [overflow-wrap:anywhere]">{fromLabel}</span>
+            </div>
+          ) : null}
           <div className="flex items-center gap-2 border-b border-line bg-subtle px-3 py-2 text-[13px]">
             <span className="w-14 shrink-0 text-muted">To</span>
-            <span className="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">{recipient}</span>
+            <span className="min-w-0 flex-1 font-medium text-ink [overflow-wrap:anywhere]">{recipient}</span>
+            {profile && fromAddress ? (
+              <button type="button" onClick={() => setPreviewOpen(true)} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium link-brand">
+                <Icon name="eye" className="size-3.5" />
+                Preview email
+              </button>
+            ) : null}
           </div>
           {pending ? (
             <div className="space-y-3 p-3">
@@ -277,6 +298,17 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
           </div>
         </div>
       ) : null}
+      {profile && fromAddress ? (
+        <EmailPreview
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          subject={pending ? subject : approval.draft.subject}
+          body={pending ? body : approval.draft.body}
+          from={fromLabel ?? fromAddress}
+          to={recipient}
+          html={{ companyName: session.companyName, property: profile, fromAddress }}
+        />
+      ) : null}
       <ConfirmDialog
         open={confirmReject}
         onClose={() => setConfirmReject(false)}
@@ -286,5 +318,46 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
         confirmLabel="Reject draft"
       />
     </Card>
+  );
+}
+
+/** The email exactly as it will arrive: the branded HTML the Worker sends, rendered from the current text. */
+function EmailPreview({
+  open,
+  onClose,
+  subject,
+  body,
+  from,
+  to,
+  html,
+}: {
+  open: boolean;
+  onClose: () => void;
+  subject: string;
+  body: string;
+  from: string;
+  to: string;
+  html: { companyName: string; property: { spNumber: string; street: string; suburb: string; postcode?: string | null }; fromAddress: string };
+}) {
+  const srcDoc = useMemo(
+    () =>
+      open
+        ? renderEmailHtml({ subject, body, companyName: html.companyName, property: html.property, fromAddress: html.fromAddress, logoUrl: `${window.location.origin}/brand/email-logo.png` })
+        : "",
+    [open, subject, body, html.companyName, html.property, html.fromAddress],
+  );
+  return (
+    <Modal open={open} onClose={onClose} title="Email preview" description="How the recipient sees it. Your edits are included; nothing is sent from here." size="lg" plainTitle>
+      <dl className="mb-3 grid grid-cols-[4rem_1fr] gap-x-2 gap-y-1 text-[13px]">
+        <dt className="text-muted">From</dt>
+        <dd className="text-ink [overflow-wrap:anywhere]">{from}</dd>
+        <dt className="text-muted">To</dt>
+        <dd className="text-ink [overflow-wrap:anywhere]">{to}</dd>
+        <dt className="text-muted">Subject</dt>
+        <dd className="font-medium text-ink [overflow-wrap:anywhere]">{subject}</dd>
+      </dl>
+      {/* No scripts can run (sandbox without allow-scripts); same origin only so the logo and CSP resolve. */}
+      <iframe title={`Preview: ${subject}`} srcDoc={srcDoc} sandbox="allow-same-origin" className="h-[65vh] w-full border border-line bg-canvas" />
+    </Modal>
   );
 }

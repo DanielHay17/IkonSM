@@ -1,7 +1,8 @@
 // Sends an email that a logged-in human has approved. This is the only place the hub sends mail;
 // callers (PropertyAgent.decideApproval) are responsible for the approval and recipient checks.
 
-import type { EmailDraft } from "../../shared/types";
+import { renderEmailHtml } from "../../shared/email-html";
+import type { EmailDraft, PropertyProfile } from "../../shared/types";
 
 const MAX_REFERENCES = 20;
 const MAX_SUBJECT_CHARS = 300;
@@ -12,7 +13,16 @@ export type SendResult = { ok: true; messageId: string } | { ok: false; error: s
 
 export async function sendApprovedEmail(
   env: Env,
-  args: { fromAddress: string; fromName: string; draft: EmailDraft; propertyId: string; approvalId: string },
+  args: {
+    fromAddress: string;
+    fromName: string;
+    draft: EmailDraft;
+    propertyId: string;
+    approvalId: string;
+    /** With the property, the email also goes out as branded HTML (the text part is always sent). */
+    property?: PropertyProfile;
+    companyName?: string;
+  },
 ): Promise<SendResult> {
   const { draft } = args;
   const to = cleanAddress(draft.to);
@@ -28,12 +38,25 @@ export async function sendApprovedEmail(
       to: mailbox(to, draft.toName),
       subject: headerText(draft.subject, MAX_SUBJECT_CHARS) || "(no subject)",
       text: draft.body.replace(/\r\n?/g, "\n"),
+      ...(args.property ? { html: htmlFor(env, args, from) } : {}),
       headers: outboundHeaders(draft, args.propertyId, args.approvalId),
     });
     return { ok: true, messageId: result.messageId };
   } catch (err) {
     return { ok: false, error: describeError(err) };
   }
+}
+
+function htmlFor(env: Env, args: { draft: EmailDraft; property?: PropertyProfile; companyName?: string }, from: string): string {
+  const base = (env.PUBLIC_URL ?? "").trim().replace(/\/+$/, "");
+  return renderEmailHtml({
+    subject: headerText(args.draft.subject, MAX_SUBJECT_CHARS),
+    body: args.draft.body,
+    companyName: args.companyName || env.COMPANY_NAME || "Ikon Strata Management",
+    property: args.property!,
+    fromAddress: from,
+    logoUrl: /^https:\/\//.test(base) ? `${base}/brand/email-logo.png` : null,
+  });
 }
 
 /** Threading and audit headers, with empty values dropped. */

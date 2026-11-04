@@ -33,7 +33,7 @@ import type {
   Ticket,
 } from "../../shared/types";
 import { aiProvider, makeClient, modelFor, offlineReason, type AiProvider } from "../ai/client";
-import { withAiSwitch } from "../ai/switch";
+import { engineAvailable, withAiChoice, type StoredAiChoice } from "../ai/switch";
 import { chiefOfStaffSystemPrompt } from "../ai/prompts";
 import { answerWithSources, lightModeFooter, PORTFOLIO_LIGHT_MODE, workersAiText } from "../ai/workers-ai";
 import { parseInbound } from "../email/inbound";
@@ -630,6 +630,13 @@ function mentionedPropertyIds(text: string): string[] {
 // ===========================================================================
 
 const AI_SWITCH_KEY = "ai_switch";
+const STORED_CHOICES: readonly StoredAiChoice[] = ["off", "workers-ai", "claude", "default"];
+
+/** Reads the stored switch. "on" is the earlier on/off switch's value and means the deployment's default. */
+function storedChoice(value: string | null): StoredAiChoice {
+  if (value === null || value === "on") return "default";
+  return (STORED_CHOICES as readonly string[]).includes(value) ? (value as StoredAiChoice) : "off";
+}
 
 export class ChiefOfStaffAgent extends Agent<Env, CosState> {
   initialState: CosState = { brief: null, version: 0 };
@@ -718,21 +725,23 @@ export class ChiefOfStaffAgent extends Agent<Env, CosState> {
   // Hub-wide AI switch (read by the API and every building agent; see worker/ai/switch.ts)
   // -------------------------------------------------------------------------
 
-  /** Unset means on: the deployment's LLM_PROVIDER applies until someone switches AI off. */
-  async getAiSwitch(): Promise<boolean> {
-    return this.getMeta(AI_SWITCH_KEY) !== "off";
+  /** Unset means "default": the deployment's LLM_PROVIDER applies until someone picks an engine. */
+  async getAiChoice(): Promise<StoredAiChoice> {
+    return storedChoice(this.getMeta(AI_SWITCH_KEY));
   }
 
-  async setAiSwitch(on: boolean, actor: string): Promise<boolean> {
-    if (typeof on !== "boolean") throw new Error("on must be true or false");
-    const before = this.getMeta(AI_SWITCH_KEY) !== "off";
-    this.setMeta(AI_SWITCH_KEY, on ? "on" : "off");
-    if (before !== on) {
-      const engine = aiProvider(this.env);
-      this.logActivity("system", on ? `${actor} switched AI on (${engine.label})` : `${actor} switched AI off: rules engine and templates`);
+  /** Picks the engine for the whole hub. An engine the deployment can't run is refused. */
+  async setAiChoice(choice: StoredAiChoice, actor: string): Promise<StoredAiChoice> {
+    if (!STORED_CHOICES.includes(choice)) throw new Error("Unknown AI engine");
+    if (choice !== "default" && !engineAvailable(this.env, choice)) throw new Error(`${choice === "claude" ? "Claude" : "That engine"} isn't set up on this hub yet`);
+    const before = this.getMeta(AI_SWITCH_KEY);
+    this.setMeta(AI_SWITCH_KEY, choice);
+    if (before !== choice) {
+      const engine = aiProvider(withAiChoice(this.env, choice));
+      this.logActivity("system", engine.kind === "off" ? `${actor} switched AI off: rules engine and templates` : `${actor} switched AI to ${engine.label}`);
       this.bumpVersion();
     }
-    return on;
+    return choice;
   }
 
   /**
@@ -1393,7 +1402,7 @@ export class ChiefOfStaffAgent extends Agent<Env, CosState> {
 
   /** The deployment's AI settings with the hub-wide AI switch applied (worker/ai/switch.ts). */
   private aiEnv(): Env {
-    return withAiSwitch(this.env, this.getMeta(AI_SWITCH_KEY) !== "off");
+    return withAiChoice(this.env, storedChoice(this.getMeta(AI_SWITCH_KEY)));
   }
 
   private getMeta(key: string): string | null {

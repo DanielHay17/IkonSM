@@ -455,13 +455,19 @@ export interface PortfolioBrief {
   highlights: { propertyId: string; label: string; priority: Priority | null }[];
 }
 
-/** The hub-wide AI switch: staff turn the deployment's AI engine off (rules and templates) and on again. */
+/** The engines staff can pick on the hub-wide AI switch. */
+export type AiEngineChoice = "off" | "workers-ai" | "claude";
+
+/** The hub-wide AI switch: off (rules and templates), Llama (Workers AI) or Claude. */
 export interface AiSwitchInfo {
+  /** True when an AI engine is in use. */
   on: boolean;
-  /** False when the deployment has no AI engine configured (LLM_PROVIDER off or missing keys). */
+  /** False when no AI engine is set up on this deployment (only the rules engine can run). */
   available: boolean;
-  /** The engine the switch turns on, e.g. "Workers AI Llama 4 Scout"; null when unavailable. */
+  /** The engine in use, e.g. "Workers AI @cf/meta/llama-4-scout-17b-16e-instruct"; null when off. */
   engine: string | null;
+  choice: AiEngineChoice;
+  options: { id: AiEngineChoice; label: string; available: boolean; detail: string }[];
 }
 
 export interface SessionInfo {

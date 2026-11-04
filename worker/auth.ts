@@ -15,7 +15,7 @@ import { parse as parseCookies, type CookieOptions } from "hono/utils/cookie";
 import { z } from "zod";
 import type { SessionInfo } from "../shared/types";
 import { aiInfo, aiOnline } from "./ai/client";
-import { aiSwitchInfo, readAiSwitch, withAiSwitch } from "./ai/switch";
+import { aiSwitchInfo, readAiChoice, withAiChoice } from "./ai/switch";
 import { readJson, type AppEnv } from "./http";
 
 export const SESSION_COOKIE = "ikon_session";
@@ -252,8 +252,8 @@ authRoutes.get("/session", async (c) => {
 
 /** Session info for a signed-in member of staff, with the hub-wide AI switch applied. */
 export async function sessionWithSwitch(env: Env, staffName: string): Promise<SessionInfo> {
-  const on = await readAiSwitch(env);
-  return { ...sessionInfo(withAiSwitch(env, on), staffName), aiSwitch: aiSwitchInfo(env, on) };
+  const choice = await readAiChoice(env);
+  return { ...sessionInfo(withAiChoice(env, choice), staffName), aiSwitch: aiSwitchInfo(env, choice) };
 }
 
 authRoutes.post("/login", async (c) => {

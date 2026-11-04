@@ -2,6 +2,7 @@
 // these authenticated routes; the agent websockets are read-only live state.
 
 import type {
+  AiEngineChoice,
   ActivityEvent,
   Approval,
   ApprovalDecision,
@@ -162,7 +163,7 @@ export const api = {
   portfolio: () => get<PropertyCard[]>("/api/portfolio"),
   brief: () => get<PortfolioBrief | null>("/api/brief"),
   refreshBrief: () => post<PortfolioBrief>("/api/brief/refresh"),
-  setAiSwitch: (on: boolean) => post<SessionInfo>("/api/settings/ai", { on }),
+  setAiEngine: (engine: AiEngineChoice) => post<SessionInfo>("/api/settings/ai", { engine }),
   loadDemo: () => post<{ buildings: { propertyId: string; threads: number; tickets: number }[] }>("/api/demo/load"),
   clearDemo: () => post<{ buildings: { propertyId: string; threads: number }[] }>("/api/demo/clear"),
   cosChat: () => get<ChatMessage[]>("/api/cos/chat"),

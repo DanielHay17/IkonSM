@@ -28,8 +28,11 @@
   "vars": {
     "APP_NAME": "Ikon Command Hub",
     "COMPANY_NAME": "Ikon Strata Management",
-    // Domain the building agents receive email on, e.g. sp26707@<EMAIL_DOMAIN>
-    "EMAIL_DOMAIN": "ikon.example.com",
+    // Domain the building agents receive email on, e.g. sp26707@<EMAIL_DOMAIN>. Mail only flows once
+    // Email Routing (inbound) and Email Service (outbound) are set up for it on the same Cloudflare account.
+    "EMAIL_DOMAIN": "agent.ikonsm.com.au",
+    // The hub's public URL: the logo in outgoing HTML emails is loaded from here.
+    "PUBLIC_URL": "https://ikonsm.danmatt429.workers.dev",
     // Which LLM the agents use: "auto" | "anthropic" | "gateway" | "workers-ai" | "off".
     // auto: ANTHROPIC_API_KEY -> Claude direct; else CF_AIG_TOKEN + CF_ACCOUNT_ID + AI_GATEWAY_ID ->
     // Claude via Cloudflare AI Gateway (unified billing, no Anthropic key); else off (rules/templates).

@@ -18,7 +18,7 @@ import {
   type TicketStatus,
 } from "../shared/types";
 import type { PropertyAgent } from "./agents/property-agent";
-import { CHIEF_OF_STAFF_NAME } from "./ai/switch";
+import { CHIEF_OF_STAFF_NAME, engineAvailable } from "./ai/switch";
 import { authRoutes, requireStaff, sessionWithSwitch, staffFromRequest } from "./auth";
 import { extractText } from "./docs/extract";
 import { guessMime, r2KeyFor } from "./docs/vault";
@@ -151,7 +151,7 @@ const optionalQuery = <S extends z.ZodType>(schema: S) =>
   z.preprocess((value) => (value === "" ? undefined : value), schema.optional());
 
 const chatSchema = z.object({ text: requiredText(4000) });
-const aiSwitchSchema = z.object({ on: z.boolean() });
+const aiSwitchSchema = z.union([z.object({ engine: z.enum(["off", "workers-ai", "claude"]) }), z.object({ on: z.boolean() })]);
 const memorySchema = z.object({ text: requiredText(2000) });
 const draftSchema = z.object({ instructions: nullableText(4000) });
 
@@ -514,8 +514,13 @@ api.delete("/cos/chat", async (c) => {
 
 /** The hub-wide AI switch: off is the rules engine and templates; on is the deployment's AI engine. */
 api.post("/settings/ai", async (c) => {
-  const { on } = await readJson(c, aiSwitchSchema);
-  await (await chiefOfStaff(c.env)).setAiSwitch(on, c.var.staffName);
+  const body = await readJson(c, aiSwitchSchema);
+  // { engine } picks one; { on } is the plain switch (on = the deployment's default engine).
+  const choice = "engine" in body ? body.engine : body.on ? "default" : "off";
+  if (choice !== "default" && choice !== "off" && !engineAvailable(c.env, choice)) {
+    throw new HTTPException(400, { message: choice === "claude" ? "Claude isn't set up on this hub yet: add an ANTHROPIC_API_KEY secret or AI Gateway credits to the Worker." : "That AI engine isn't set up on this hub." });
+  }
+  await (await chiefOfStaff(c.env)).setAiChoice(choice, c.var.staffName);
   return c.json(await sessionWithSwitch(c.env, c.var.staffName));
 });
 

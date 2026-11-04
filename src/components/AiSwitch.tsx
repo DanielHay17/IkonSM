@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { AiEngineChoice } from "../../shared/types";
 import { api } from "../api";
 import { cx } from "../lib/cx";
 import { useSession } from "../providers/SessionProvider";
@@ -6,62 +7,70 @@ import { AiStatusPill } from "./StatusBadges";
 import { useToast } from "./Toast";
 
 /**
- * The hub-wide AI switch, in the dark sidebar. On uses the deployment's AI engine (for example Workers AI);
- * off is the rules engine and templates. Without an engine to switch on, it is just the status pill.
+ * The hub-wide AI switch, in the dark sidebar: Off (rules engine and templates), Llama (Workers AI) or
+ * Claude. An engine the deployment can't run is shown but disabled, with what it needs in its tooltip.
+ * Without any engine set up it is just the status pill.
  */
 export function AiSwitch() {
   const { session, setSession } = useSession();
   const toast = useToast();
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<AiEngineChoice | null>(null);
   const info = session.aiSwitch;
-  if (!info?.available) return <AiStatusPill online={session.aiOnline} ai={session.ai} tone="dark" />;
+  if (!info?.available || !info.options) return <AiStatusPill online={session.aiOnline} ai={session.ai} tone="dark" />;
 
-  const on = info.on;
-  const toggle = async () => {
-    setSaving(true);
+  const pick = async (engine: AiEngineChoice) => {
+    if (engine === info.choice) return;
+    setSaving(engine);
     try {
-      const next = await api.setAiSwitch(!on);
+      const next = await api.setAiEngine(engine);
       setSession(next);
       toast.success(next.aiSwitch?.on ? `AI on: ${next.aiSwitch.engine ?? "AI engine"}` : "AI off: rules engine and templates");
     } catch (err) {
-      toast.error("Couldn't change the AI switch", err);
+      toast.error("Couldn't change the AI engine", err);
     } finally {
-      setSaving(false);
+      setSaving(null);
     }
   };
 
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label="AI"
-      aria-describedby="ai-switch-state"
-      disabled={saving}
-      onClick={() => void toggle()}
-      title={on ? `On: ${info.engine ?? "AI engine"}. Click to use the rules engine and templates.` : "Off: rules engine and templates. Click to switch AI on."}
-      className="group flex w-full items-center gap-3 px-1 py-1 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:cursor-wait disabled:opacity-70"
-    >
-      <span
-        aria-hidden="true"
-        className={cx(
-          "relative inline-flex h-5 w-9 shrink-0 items-center ring-1 transition-colors ring-inset",
-          on ? "bg-emerald-500/90 ring-emerald-300/60" : "bg-white/10 ring-white/25 group-hover:bg-white/15",
-        )}
-      >
-        <span
-          className={cx(
-            "absolute top-1 size-3 bg-white shadow transition-transform motion-reduce:transition-none",
-            on ? "translate-x-5" : "translate-x-1",
-          )}
-        />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-[11px] font-semibold tracking-[0.14em] text-white uppercase">AI {on ? "on" : "off"}</span>
-        <span id="ai-switch-state" className="block truncate text-[11px] leading-4 text-charcoal-muted">
-          {on ? (info.engine ?? "AI engine") : "Rules engine and templates"}
+    <div>
+      <div className="mb-1.5 flex items-baseline justify-between px-1">
+        <span id="ai-switch-label" className="text-[11px] font-semibold tracking-[0.14em] text-white uppercase">
+          AI {info.on ? "on" : "off"}
         </span>
-      </span>
-    </button>
+        {info.on ? <span aria-hidden="true" className="size-1.5 rounded-full bg-emerald-400" /> : null}
+      </div>
+      <div role="radiogroup" aria-labelledby="ai-switch-label" className="grid grid-cols-3 gap-px bg-white/15 p-px">
+        {info.options.map((option) => {
+          const selected = option.id === info.choice;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              disabled={!option.available || saving !== null}
+              onClick={() => void pick(option.id)}
+              title={option.available ? option.detail : `Not set up: ${option.detail}`}
+              className={cx(
+                "px-1 py-1.5 text-[11px] font-semibold tracking-wide uppercase transition-colors focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white",
+                selected
+                  ? option.id === "off"
+                    ? "bg-white text-charcoal"
+                    : "bg-emerald-400 text-charcoal"
+                  : "bg-charcoal text-charcoal-text hover:bg-white/10 hover:text-white",
+                !option.available && "cursor-not-allowed text-white/35 line-through decoration-white/30 hover:bg-charcoal hover:text-white/35",
+                saving === option.id && "animate-pulse",
+              )}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-1.5 truncate px-1 text-[11px] leading-4 text-charcoal-muted" title={info.engine ?? undefined}>
+        {info.on ? (info.engine ?? "AI engine") : "Rules engine and templates"}
+      </p>
+    </div>
   );
 }

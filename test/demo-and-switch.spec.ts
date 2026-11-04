@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { SessionInfo, Thread, Ticket } from "../shared/types";
 import { aiProvider } from "../worker/ai/client";
 import { paragraphs } from "../worker/ai/drafting";
-import { aiSwitchInfo, CHIEF_OF_STAFF_NAME, readAiSwitch, withAiSwitch, withSetting } from "../worker/ai/switch";
+import { aiSwitchInfo, CHIEF_OF_STAFF_NAME, engineAvailable, readAiChoice, withAiChoice, withSetting } from "../worker/ai/switch";
 import { mergeWithRules, rulesTriage } from "../worker/ai/triage";
 import { DEMO_SCENARIO } from "../worker/seed/demo";
 import { callJson, loginAndSeed, PILOT, simulate, tag, burstPipe } from "./helpers";
@@ -55,21 +55,37 @@ describe("demo scenario", () => {
 });
 
 describe("AI switch", () => {
-  it("off swaps in the rules engine and keeps every binding", () => {
+  it("off swaps in the rules engine and keeps every binding; engines unlock only when set up", () => {
     const before = env.LLM_PROVIDER;
-    const deployed = withAiSwitch(withSetting(env, "LLM_PROVIDER", "workers-ai"), true);
-    expect(aiProvider(deployed).kind).toBe("workers-ai");
-    const off = withAiSwitch(deployed, false);
+    const deployed = withSetting(env, "LLM_PROVIDER", "workers-ai");
+    expect(aiProvider(withAiChoice(deployed, "default")).kind).toBe("workers-ai");
+    const off = withAiChoice(deployed, "off");
     expect(aiProvider(off).kind).toBe("off");
     expect(off.VAULT).toBe(env.VAULT);
     expect(off.PropertyAgent).toBe(env.PropertyAgent);
-    expect(aiSwitchInfo(deployed, false)).toMatchObject({ on: false, available: true });
-    expect(aiSwitchInfo(deployed, true).engine).toMatch(/Workers AI/);
     // The shared env is never changed.
     expect(env.LLM_PROVIDER).toBe(before);
     expect(deployed.LLM_PROVIDER).toBe("workers-ai");
-    // No engine deployed: nothing to switch on.
-    expect(aiSwitchInfo(withAiSwitch(env, true), true)).toEqual({ on: false, available: false, engine: null });
+
+    const info = aiSwitchInfo(deployed, "default");
+    expect(info).toMatchObject({ on: true, available: true, choice: "workers-ai" });
+    expect(info.engine).toMatch(/Workers AI/);
+    expect(info.options.map((o) => [o.id, o.available])).toEqual([["off", true], ["workers-ai", true], ["claude", false]]);
+    // Claude without a key or gateway credits falls back to the rules engine, never to another engine.
+    expect(aiProvider(withAiChoice(deployed, "claude")).kind).toBe("off");
+    expect(engineAvailable(deployed, "claude")).toBe(false);
+
+    const withKey = withSetting(deployed, "ANTHROPIC_API_KEY", "sk-test");
+    expect(engineAvailable(withKey, "claude")).toBe(true);
+    expect(aiProvider(withAiChoice(withKey, "claude")).kind).toBe("anthropic");
+    expect(aiSwitchInfo(withKey, "claude")).toMatchObject({ on: true, choice: "claude" });
+    expect(aiSwitchInfo(withKey, "off")).toMatchObject({ on: false, choice: "off", engine: null });
+
+    // The test env has the Workers AI binding but LLM_PROVIDER "auto" with no keys: off until someone picks Llama.
+    expect(aiSwitchInfo(env, "default")).toMatchObject({ on: false, available: true, engine: null, choice: "off" });
+    // Nothing set up at all: nothing to switch on.
+    const bare = withSetting(env, "AI", undefined as unknown as string);
+    expect(aiSwitchInfo(bare, "default")).toMatchObject({ on: false, available: false, choice: "off" });
   });
 
   it("is stored in the Chief of Staff and read by everyone", async () => {
@@ -78,21 +94,32 @@ describe("AI switch", () => {
     const cos = await getAgentByName(env.ChiefOfStaffAgent, CHIEF_OF_STAFF_NAME);
 
     const off = await callJson<SessionInfo>("/api/settings/ai", { cookie, json: { on: false } });
-    expect(off.aiSwitch).toEqual({ on: false, available: false, engine: null });
-    expect(await cos.getAiSwitch()).toBe(false);
-    expect(await readAiSwitch(deployed)).toBe(false);
+    expect(off.aiSwitch).toMatchObject({ on: false, available: true, choice: "off" });
+    expect(await cos.getAiChoice()).toBe("off");
+    expect(await readAiChoice(deployed)).toBe("off");
 
     await callJson<SessionInfo>("/api/settings/ai", { cookie, json: { on: true } });
-    expect(await cos.getAiSwitch()).toBe(true);
-    expect(await readAiSwitch(deployed)).toBe(true);
-    // With no engine deployed the switch can't turn AI on.
-    expect(await readAiSwitch(env)).toBe(false);
+    expect(await cos.getAiChoice()).toBe("default");
+    expect(await readAiChoice(deployed)).toBe("default");
+    // With no engine set up there is nothing to read: rules.
+    expect(await readAiChoice(withSetting(env, "AI", undefined as unknown as string))).toBe("off");
+
+    // An engine this deployment can't run is refused, and the stored choice is unchanged.
+    await callJson("/api/settings/ai", { cookie, json: { engine: "claude" }, status: 400 });
+    expect(await cos.getAiChoice()).toBe("default");
+    const llama = await callJson<SessionInfo>("/api/settings/ai", { cookie, json: { engine: "workers-ai" } });
+    expect(llama.aiSwitch).toMatchObject({ on: true, choice: "workers-ai" });
+    expect(await cos.getAiChoice()).toBe("workers-ai");
+    await callJson<SessionInfo>("/api/settings/ai", { cookie, json: { engine: "off" } });
+    expect(await cos.getAiChoice()).toBe("off");
+    await callJson("/api/settings/ai", { cookie, json: { on: true } });
 
     const session = await callJson<SessionInfo>("/api/session", { cookie });
-    expect(session.aiSwitch).toBeDefined();
+    expect(session.aiSwitch?.options.map((o) => o.id)).toEqual(["off", "workers-ai", "claude"]);
     expect(session.aiOnline).toBe(false);
 
     await callJson("/api/settings/ai", { cookie, json: { on: "yes" }, status: 400 });
+    await callJson("/api/settings/ai", { cookie, json: { engine: "gpt" }, status: 400 });
   });
 });
 

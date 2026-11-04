@@ -9,6 +9,7 @@ interface __BaseEnv_Env {
 	APP_NAME: string;
 	COMPANY_NAME: string;
 	EMAIL_DOMAIN: string;
+	PUBLIC_URL: string;
 	LLM_PROVIDER: string;
 	WORKERS_AI_MODEL: string;
 	MODEL_AGENT: string;
@@ -35,7 +36,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "APP_NAME" | "COMPANY_NAME" | "EMAIL_DOMAIN" | "LLM_PROVIDER" | "WORKERS_AI_MODEL" | "MODEL_AGENT" | "MODEL_TRIAGE" | "AUTH_REQUIRED" | "HUB_PASSCODE" | "SESSION_SECRET" | "ANTHROPIC_API_KEY" | "CF_ACCOUNT_ID" | "AI_GATEWAY_ID" | "CF_AIG_TOKEN">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "APP_NAME" | "COMPANY_NAME" | "EMAIL_DOMAIN" | "PUBLIC_URL" | "LLM_PROVIDER" | "WORKERS_AI_MODEL" | "MODEL_AGENT" | "MODEL_TRIAGE" | "AUTH_REQUIRED" | "HUB_PASSCODE" | "SESSION_SECRET" | "ANTHROPIC_API_KEY" | "CF_ACCOUNT_ID" | "AI_GATEWAY_ID" | "CF_AIG_TOKEN">> {}
 }
 declare module "*.txt" {
 	const value: string;

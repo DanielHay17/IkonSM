@@ -50,7 +50,7 @@ import type {
 import { engineLabel } from "../../shared/engines";
 import { AgentRunError, runAgent, type ToolHost } from "../ai/agent-loop";
 import { aiInfo, aiOnline, aiProvider, offlineReason, perthDate, perthShort } from "../ai/client";
-import { readAiSwitch, withAiSwitch } from "../ai/switch";
+import { readAiChoice, withAiChoice } from "../ai/switch";
 import type { DemoItem } from "../seed/demo";
 import { draftReply as composeDraft } from "../ai/drafting";
 import { propertySystemPrompt } from "../ai/prompts";
@@ -1043,6 +1043,8 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
         draft,
         propertyId: this.name,
         approvalId: approval.id,
+        property: profile,
+        companyName: this.companyName(),
       }),
     ).catch((err: unknown) => ({ ok: false as const, error: errorText(err) }));
     if (!sent.ok) return this.failApproval(approval, actor, `Send failed: ${sent.error}`);
@@ -1731,7 +1733,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
 
   /** The deployment's AI settings with the hub-wide AI switch applied (worker/ai/switch.ts). */
   private async aiEnv(forceOff = false): Promise<Env> {
-    return withAiSwitch(this.env, forceOff ? false : await readAiSwitch(this.env));
+    return withAiChoice(this.env, forceOff ? "off" : await readAiChoice(this.env));
   }
 
   /** Dynamic SQL (IN lists, optional filters); static queries use this.sql. */
