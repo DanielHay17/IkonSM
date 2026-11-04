@@ -46,12 +46,13 @@ import { paths } from "../../router";
 import { useBuilding } from "./BuildingContext";
 
 const COLUMNS: TicketStatus[] = ["new", "assigned", "in_progress", "waiting", "done"];
+// Status dots in the brand's monochrome, from hollow (new) to charcoal (in progress); waiting and done keep their usual colours.
 const COLUMN_ACCENT: Record<TicketStatus, string> = {
-  new: "bg-sky-500",
-  assigned: "bg-violet-500",
-  in_progress: "bg-accent",
+  new: "border-[1.5px] border-ink",
+  assigned: "bg-taupe",
+  in_progress: "bg-ink",
   waiting: "bg-amber-500",
-  done: "bg-emerald-500",
+  done: "bg-emerald-600",
 };
 const PRIORITIES: Priority[] = ["P1", "P2", "P3"];
 const PRIORITY_RANK: Record<Priority, number> = { P1: 0, P2: 1, P3: 2 };
@@ -82,7 +83,8 @@ const DROP_ANIMATION: DropAnimation = {
   sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: "0" } }, className: { dragOverlay: "pointer-events-none" } }),
 };
 
-const CARD_CLASSES = "rounded-xl border border-line bg-surface p-3.5 shadow-card";
+// Border colour and shadow are set per use, so the card and its drag copy never carry two of each.
+const CARD_CLASSES = "rounded-xl border bg-surface p-3.5";
 
 interface CardProps {
   ticket: Ticket;
@@ -155,42 +157,38 @@ function TicketCardContent({
         ) : null}
       </dl>
 
-      <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 border-t border-line pt-3">
         {ticket.threadId && !overlay ? (
-          <Link href={paths.thread(propertyId, ticket.threadId)} className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline">
+          <Link href={paths.thread(propertyId, ticket.threadId)} className="link-brand inline-flex items-center gap-1 text-xs font-medium">
             <Icon name="mail" className="size-3.5" /> Thread
           </Link>
         ) : ticket.threadId ? (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-accent">
+          <span className="link-brand inline-flex items-center gap-1 text-xs font-medium">
             <Icon name="mail" className="size-3.5" /> Thread
           </span>
         ) : (
           <span className="text-[11px] text-muted">{timeAgo(ticket.updatedAt)}</span>
         )}
         {onMove ? (
-          <>
-            <label htmlFor={selectId} className="sr-only">
-              Move {ticket.number} to
-            </label>
-            <select
-              id={selectId}
-              value={ticket.status}
-              disabled={moving}
-              onChange={(e) => onMove(e.target.value as TicketStatus)}
-              className={cx(selectClasses(undefined, "h-7"), "w-auto! shrink-0 rounded-md! py-0 pl-2! text-xs!")}
-            >
-              {COLUMNS.map((status) => (
-                <option key={status} value={status}>
-                  {TICKET_STATUS_LABELS[status]}
-                </option>
-              ))}
-            </select>
-          </>
-        ) : (
-          <span className="inline-flex h-7 shrink-0 items-center rounded-md border border-line-strong bg-surface px-2 text-xs text-ink">
-            {TICKET_STATUS_LABELS[ticket.status]}
-          </span>
-        )}
+          <label htmlFor={selectId} className="sr-only">
+            Move {ticket.number} to
+          </label>
+        ) : null}
+        {/* The drag copy shows the same menu, so it lays out exactly like the card; it is hidden and inert there. */}
+        <select
+          id={overlay ? undefined : selectId}
+          tabIndex={overlay ? -1 : undefined}
+          value={ticket.status}
+          disabled={moving}
+          onChange={(e) => onMove?.(e.target.value as TicketStatus)}
+          className={cx(selectClasses(undefined, "h-7"), "ml-auto w-auto! max-w-full py-0 pl-2! text-xs!")}
+        >
+          {COLUMNS.map((status) => (
+            <option key={status} value={status}>
+              {TICKET_STATUS_LABELS[status]}
+            </option>
+          ))}
+        </select>
       </div>
     </>
   );
@@ -214,6 +212,7 @@ function TicketCard(props: CardProps) {
       aria-busy={moving || undefined}
       className={cx(
         CARD_CLASSES,
+        "border-line shadow-card",
         // manipulation keeps page scrolling on touch; the long-press callout and text selection would fight the drag.
         "touch-manipulation transition-opacity duration-150 [-webkit-touch-callout:none] pointer-coarse:select-none",
         !moving && "cursor-grab",
@@ -228,7 +227,7 @@ function TicketCard(props: CardProps) {
 /** The copy that follows the pointer while dragging. Hidden from screen readers: the live region narrates the drag. */
 function TicketCardOverlay({ ticket, contractor }: Pick<CardProps, "ticket" | "contractor">) {
   return (
-    <div data-drag-overlay="" aria-hidden="true" className={cx(CARD_CLASSES, "h-full cursor-grabbing shadow-pop ring-2 ring-accent/35")}>
+    <div data-drag-overlay="" aria-hidden="true" inert className={cx(CARD_CLASSES, "h-full cursor-grabbing border-ink shadow-pop")}>
       <TicketCardContent ticket={ticket} contractor={contractor} handle={<DragHandle decorative label="" />} />
     </div>
   );
@@ -261,12 +260,13 @@ function BoardColumn({
       className={cx(
         "flex min-w-0 flex-col rounded-xl p-3 transition-[background-color,box-shadow] duration-150",
         // One background and one ring at a time: Tailwind's own ordering would decide between two.
-        target ? "bg-accent-soft ring-2 ring-accent" : isOver ? "bg-[#f0eee9] ring-2 ring-line-strong" : "bg-[#f0eee9] ring-1 ring-line/70",
+        // The target lights up white with a charcoal keyline, like the website's outline buttons.
+        target ? "bg-surface ring-2 ring-ink" : isOver ? "bg-sunken ring-2 ring-line-input" : "bg-sunken ring-1 ring-line",
       )}
     >
-      <h3 id={`col-${status}`} className="mb-3 flex items-center gap-2 px-1 text-[13px] font-semibold text-ink">
-        <span aria-hidden="true" className={cx("size-2 rounded-full", COLUMN_ACCENT[status])} />
-        {TICKET_STATUS_LABELS[status]}
+      <h3 id={`col-${status}`} className="mb-3 flex items-center gap-2 border-b border-line-strong px-1 pb-2.5">
+        <span aria-hidden="true" className={cx("size-2 shrink-0 rounded-full", COLUMN_ACCENT[status])} />
+        <span className="heading-display min-w-0 truncate text-[11px] leading-5 text-ink">{TICKET_STATUS_LABELS[status]}</span>
         <span className="ml-auto text-xs font-medium text-muted tabular-nums">{count}</span>
       </h3>
       {count ? (
@@ -274,8 +274,8 @@ function BoardColumn({
       ) : (
         <p
           className={cx(
-            "rounded-lg border border-dashed px-3 py-6 text-center text-xs transition-colors duration-150",
-            target ? "border-accent bg-surface/70 font-medium text-accent" : dragging ? "border-line-strong text-ink-soft" : "border-line-strong text-muted",
+            "border border-dashed px-3 py-6 text-center text-xs transition-colors duration-150",
+            target ? "border-ink font-medium text-ink" : dragging ? "border-line-input text-ink-soft" : "border-line-strong text-muted",
           )}
         >
           {dragging ? "Drop here" : "Nothing here"}
@@ -419,7 +419,7 @@ function BoardSkeleton() {
   return (
     <div className="grid auto-cols-[minmax(196px,1fr)] grid-flow-col gap-3 overflow-hidden" role="status" aria-label="Loading work orders">
       {COLUMNS.map((c) => (
-        <div key={c} className="space-y-3 rounded-xl bg-[#f0eee9] p-3">
+        <div key={c} className="space-y-3 rounded-xl bg-sunken p-3">
           <Skeleton className="h-4 w-20" />
           <Skeleton className="h-28 w-full rounded-xl" />
           <Skeleton className="h-20 w-full rounded-xl" />
@@ -534,7 +534,7 @@ export function WorkOrdersTab() {
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-ink">Work orders</h2>
+          <h2 className="heading-display text-[15px] leading-6 text-ink">Work orders</h2>
           <p className="text-[13px] text-muted">
             {tickets.data ? (
               <>
