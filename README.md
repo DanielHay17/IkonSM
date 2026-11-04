@@ -51,7 +51,7 @@ Sign in with the `HUB_PASSCODE` from `.dev.vars` and any name. The pilot buildin
 
 ```bash
 npm run typecheck   # app, worker and test tsconfigs
-npm test            # 179 tests in workerd (vitest + @cloudflare/vitest-plugin)
+npm test            # 186 tests in workerd (vitest + @cloudflare/vitest-plugin)
 ```
 
 The tests cover:
@@ -93,10 +93,20 @@ To sign everyone out, rotate `SESSION_SECRET`. For anything beyond a demo, put t
 | `auto` (default) | Claude direct if `ANTHROPIC_API_KEY` is set; otherwise Claude through AI Gateway if the three gateway secrets are set; otherwise `off` | — |
 | `anthropic` | Claude via the Anthropic API | secret `ANTHROPIC_API_KEY` |
 | `gateway` | Claude via **Cloudflare AI Gateway unified billing**, paid with Cloudflare credits, no Anthropic account | secrets `CF_AIG_TOKEN`, `CF_ACCOUNT_ID`, `AI_GATEWAY_ID` |
-| `workers-ai` | Workers AI (`WORKERS_AI_MODEL`, default Llama 4 Scout) | the `AI` binding (already configured) |
+| `workers-ai` | Workers AI (`WORKERS_AI_MODEL`, default Llama 4 Scout) in light mode. Emergencies and contractor dispatches still use the checked templates | the `AI` binding (already configured) |
 | `off` | Rules engine and templates only | — |
 
 Models used with Claude: `MODEL_AGENT` (claude-sonnet-5-5) for drafting and chat, and `MODEL_TRIAGE` (claude-haiku-5-5) for triage.
+
+**Which mode for a demo?** Use `off` until Claude is switched on: `npx wrangler deploy --var LLM_PROVIDER:off`. Don't rely on `auto`, which picks Claude or the gateway if any key or gateway secret is set on the Worker.
+
+In a live test of `workers-ai`, Llama 4 Scout:
+- left the water main out of emergency replies, and sometimes said it was "not in our records";
+- dropped 000 from some emergency replies;
+- filed a gas leak as spam;
+- took up to a minute per message.
+
+The rules engine and templates got all of these right, in under a second. The fixes since then (rules hazard categories always win, templates for emergencies and dispatches) make `workers-ai` safer, but its replies are still weaker than the templates.
 
 **To switch on Claude through AI Gateway (no Anthropic key):**
 1. Cloudflare dashboard → **AI → AI Gateway → Create gateway** (e.g. `ikonsm`).
