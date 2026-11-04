@@ -182,10 +182,11 @@ function ContactTable({ role, contacts, onEdit, onDelete }: { role: ContactRole;
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center justify-between border-b border-line px-5 py-3">
-        <h3 className="text-sm font-semibold text-ink">{ROLE_LABELS[role].group}</h3>
+        <h3 className="heading-display text-[13px] leading-6 text-ink">{ROLE_LABELS[role].group}</h3>
         <Badge tone="neutral">{contacts.length}</Badge>
       </div>
-      <div className="overflow-x-auto scrollbar-thin">
+      {/* relative: the scroller must contain the table's sr-only (absolute) cells, or they widen the page on phones. */}
+      <div className="relative overflow-x-auto scrollbar-thin">
         <table className="w-full min-w-[640px] text-left text-[13px]">
           <thead className="bg-subtle text-xs text-muted">
             <tr>

@@ -21,7 +21,7 @@ export function CardHeader({ title, description, actions, leading, as: Heading =
       <div className="flex min-w-0 items-start gap-3">
         {leading}
         <div className="min-w-0">
-          <Heading className="text-[15px] leading-6 font-semibold text-ink">{title}</Heading>
+          <Heading className="heading-display text-[13px] leading-6 text-ink">{title}</Heading>
           {description ? <p className="mt-0.5 text-[13px] text-muted">{description}</p> : null}
         </div>
       </div>
@@ -47,11 +47,11 @@ export function PageHeader({
   eyebrow?: ReactNode;
 }) {
   return (
-    <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <header className="mb-7 flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
-        {eyebrow ? <div className="mb-1.5 text-[13px] text-muted">{eyebrow}</div> : null}
-        <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-[28px] sm:leading-9">{title}</h1>
-        {description ? <p className="mt-1.5 max-w-2xl text-sm text-muted">{description}</p> : null}
+        {eyebrow ? <div className="mb-2 text-[13px] text-muted">{eyebrow}</div> : null}
+        <h1 className="heading-display text-[26px] leading-[1.05] text-ink sm:text-[34px]">{title}</h1>
+        {description ? <p className="mt-2.5 max-w-2xl text-sm leading-relaxed text-muted">{description}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </header>

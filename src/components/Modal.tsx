@@ -28,8 +28,8 @@ const SIZES: Record<ModalSize, string> = {
 
 const PLACEMENTS: Record<ModalPlacement, string> = {
   center: "m-auto w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)] rounded-2xl animate-rise-in",
-  right: "my-0 mr-0 ml-auto h-dvh max-h-dvh w-full rounded-l-2xl animate-slide-in-right",
-  left: "my-0 ml-0 mr-auto h-dvh max-h-dvh w-[min(20rem,88vw)] rounded-r-2xl animate-slide-in-left",
+  right: "my-0 mr-0 ml-auto h-dvh max-h-dvh w-full animate-slide-in-right",
+  left: "my-0 ml-0 mr-auto h-dvh max-h-dvh w-[min(20rem,88vw)] animate-slide-in-left",
 };
 
 /**
@@ -84,7 +84,7 @@ export function Modal({
             <>
               <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4 sm:px-6">
                 <div className="min-w-0">
-                  <h2 id={titleId} className="text-base font-semibold text-ink">
+                  <h2 id={titleId} className="heading-display text-[15px] leading-6 text-ink">
                     {title}
                   </h2>
                   {description ? <div className="mt-0.5 text-[13px] text-muted">{description}</div> : null}

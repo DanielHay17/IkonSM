@@ -30,13 +30,13 @@ export function TabNav<K extends string>({ items, active, label }: { items: TabI
                 href={item.href}
                 aria-current={selected ? "page" : undefined}
                 className={cx(
-                  "relative -mb-px inline-flex h-11 items-center gap-2 border-b-2 px-3 text-sm font-medium transition-colors",
+                  "relative -mb-px inline-flex h-11 items-center gap-2 border-b-2 px-3 text-[13px] font-medium tracking-[0.06em] uppercase transition-colors",
                   selected
                     ? "border-accent text-ink"
-                    : "border-transparent text-muted hover:border-line-strong hover:text-ink",
+                    : "border-transparent text-muted hover:border-line-input hover:text-ink",
                 )}
               >
-                {item.icon ? <Icon name={item.icon} className={cx("size-4", selected ? "text-accent" : "")} /> : null}
+                {item.icon ? <Icon name={item.icon} className={cx("size-4", selected ? "text-ink" : "text-taupe")} /> : null}
                 {item.label}
                 {item.adornment}
               </Link>
@@ -66,7 +66,7 @@ export function Segmented<V extends string>({
   label: string;
 }) {
   return (
-    <div role="group" aria-label={label} className="inline-flex rounded-lg border border-line bg-subtle p-0.5">
+    <div role="group" aria-label={label} className="inline-flex rounded-lg border border-line-strong bg-surface p-0.5">
       {options.map((option) => {
         const checked = option.value === value;
         return (
@@ -77,7 +77,7 @@ export function Segmented<V extends string>({
             onClick={() => onChange(option.value)}
             className={cx(
               "h-7 rounded-md px-2.5 text-xs font-medium whitespace-nowrap transition-colors",
-              checked ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-muted hover:text-ink",
+              checked ? "bg-accent text-white" : "text-ink-soft hover:bg-ink/[0.05] hover:text-ink",
             )}
           >
             {option.label}

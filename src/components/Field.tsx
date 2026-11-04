@@ -2,9 +2,9 @@ import { useId, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import { cx } from "../lib/cx";
 
 const CONTROL =
-  "block w-full rounded-lg border border-line-strong bg-surface px-3 text-sm text-ink shadow-[inset_0_1px_1px_rgb(20_22_26/0.03)] " +
-  "placeholder:text-[#9a9da3] transition-colors hover:border-[#c6c1b5] " +
-  "focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25 " +
+  "block w-full rounded-lg border border-line-input bg-surface px-3 text-sm text-ink " +
+  "placeholder:text-[#767676] transition-colors hover:border-ink-soft " +
+  "focus:border-ink focus:outline-none focus:ring-1 focus:ring-ink " +
   "disabled:cursor-not-allowed disabled:bg-subtle disabled:text-muted";
 
 /** `height` is separate so callers can resize controls without conflicting utilities. */
@@ -103,7 +103,7 @@ export function CheckboxField({ label, hint, className, id, ...rest }: { label: 
       <input
         id={inputId}
         type="checkbox"
-        className="mt-0.5 size-4 rounded border-line-strong accent-[#0f766e] focus-visible:outline-2 focus-visible:outline-accent"
+        className="mt-0.5 size-4 rounded border-line-input accent-[#292929] focus-visible:outline-2 focus-visible:outline-accent"
         {...rest}
       />
       <div>

@@ -11,7 +11,7 @@ export function NotFoundPage({ path }: { path: string }) {
         title="Page not found"
         description={<span className="font-mono text-xs">{path}</span>}
         action={
-          <Link href={paths.portfolio()} className="text-sm font-medium text-accent hover:underline">
+          <Link href={paths.portfolio()} className="text-sm font-medium link-brand">
             Back to the portfolio
           </Link>
         }

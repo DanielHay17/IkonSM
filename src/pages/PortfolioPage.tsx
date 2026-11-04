@@ -17,11 +17,11 @@ import { paths } from "../router";
 function Metric({ label, value, icon, alert }: { label: string; value: number | string; icon: IconName; alert?: boolean }) {
   return (
     <Card className={cx("flex items-center gap-3.5 px-4 py-3.5", alert && "border-red-200 bg-red-50/60")}>
-      <span className={cx("grid size-9 place-items-center rounded-lg ring-1", alert ? "bg-red-100 text-red-700 ring-red-200" : "bg-subtle text-muted ring-line")}>
+      <span className={cx("hidden size-9 shrink-0 place-items-center ring-1 sm:grid", alert ? "bg-red-100 text-red-700 ring-red-200" : "bg-surface text-taupe ring-line-strong")}>
         <Icon name={icon} className="size-[18px]" />
       </span>
       <div className="min-w-0">
-        <p className={cx("text-xl font-semibold tabular-nums", alert ? "text-red-800" : "text-ink")}>{value}</p>
+        <p className={cx("heading-display text-[22px] leading-7 tabular-nums", alert ? "text-red-800" : "text-ink")}>{value}</p>
         <p className="text-xs leading-snug text-muted">{label}</p>
       </div>
     </Card>
@@ -50,7 +50,7 @@ function PropertyTile({ card, now }: { card: PropertyCardData; now: number }) {
     >
       <div className="flex flex-1 flex-col px-5 pt-4 pb-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-[15px] font-semibold text-ink">
+          <h2 className="heading-display text-[15px] leading-6 text-ink">
             <Link href={paths.building(profile.id)} className="after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-accent">
               SP {profile.spNumber}
             </Link>

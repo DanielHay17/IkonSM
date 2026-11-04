@@ -81,7 +81,7 @@ function ThreadList({ selectedId }: { selectedId: string | null }) {
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-        <h2 className="text-sm font-semibold text-ink">Threads</h2>
+        <h2 className="heading-display text-[13px] leading-6 text-ink">Threads</h2>
         <Segmented label="Filter threads" options={FILTERS} value={filter} onChange={setFilter} />
       </div>
       {threads.loading ? (

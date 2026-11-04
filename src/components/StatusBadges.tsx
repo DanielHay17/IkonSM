@@ -184,7 +184,7 @@ export function SampleBadge() {
 
 export function CompanyPolicyBadge() {
   return (
-    <Badge tone="violet" icon="bookmark" title="Ikon-wide policy, copied into every building agent">
+    <Badge tone="charcoal" icon="bookmark" title="Ikon-wide policy, copied into every building agent">
       Company policy
     </Badge>
   );
@@ -203,14 +203,14 @@ export function AiStatusPill({ online, ai, tone = "light" }: { online: boolean; 
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset",
+        "inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] leading-4 font-medium ring-1 ring-inset",
         tone === "dark"
           ? online
-            ? "bg-emerald-400/10 text-emerald-200 ring-emerald-300/20"
-            : "bg-white/5 text-navy-text ring-white/10"
+            ? "bg-emerald-400/10 text-emerald-200 ring-emerald-300/25"
+            : "bg-white/5 text-charcoal-text ring-white/15"
           : online
             ? "bg-emerald-50 text-emerald-800 ring-emerald-200"
-            : "bg-slate-100 text-slate-700 ring-slate-200",
+            : "bg-canvas text-ink-soft ring-line-strong",
       )}
       title={
         online
@@ -220,7 +220,7 @@ export function AiStatusPill({ online, ai, tone = "light" }: { online: boolean; 
           : `No LLM in use: rules and templates only${ai?.note ? ` (${ai.note})` : ""}`
       }
     >
-      <span aria-hidden="true" className={cx("size-1.5 rounded-full", online ? "bg-emerald-500" : "bg-slate-400")} />
+      <span aria-hidden="true" className={cx("size-1.5 rounded-full", online ? "bg-emerald-500" : "bg-taupe")} />
       {text}
     </span>
   );

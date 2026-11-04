@@ -168,5 +168,14 @@ worker/
   seed/               portfolio, SP 26707 SAMPLE records, Ikon policies
 shared/               types shared by worker and UI
 src/                  React SPA (Vite + Tailwind)
+public/               favicon, app icon and the IKON SM logos (public/brand/)
 test/                 vitest specs running in workerd
 ```
+
+## Branding
+
+The UI follows the IKON SM website (ikonsm.com.au): monochrome charcoal, white and light grey, with silver and taupe accents. Corners are sharp, and headings are wide and uppercase.
+
+- **Tokens:** colours, fonts and radii live in the `@theme` block of `src/index.css`. Primary actions, focus rings and selected states all use the charcoal `accent`. The `charcoal-*` tokens are for dark surfaces such as the sidebar.
+- **Type:** Poppins for body and UI text. Headings use the `heading-display` utility in `--font-display`, which is Archivo Expanded, a free stand-in for the website's licensed Agrandir. If Ikon provides an Adobe Fonts kit, change the family in `--font-display` and the font link in `index.html`.
+- **Logo:** `public/brand/ikonsm-logo-reversed.png` (white, for charcoal) and `ikonsm-logo-dark.png` (charcoal, for light surfaces), rendered by `Logo` in `src/components/Wordmark.tsx`. Serve them from `public/`; never hotlink the website's Squarespace files.

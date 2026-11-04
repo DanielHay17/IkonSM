@@ -70,11 +70,11 @@ function ToolChips({ calls }: { calls: ChatMessage["toolCalls"] }) {
         <li
           key={`${call.name}-${i}`}
           title={call.summary}
-          className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-violet-50 px-2 py-0.5 text-[11px] text-violet-900 ring-1 ring-violet-200 ring-inset"
+          className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-canvas px-2 py-0.5 text-[11px] text-ink-soft ring-1 ring-line-strong ring-inset"
         >
-          <Icon name="bolt" className="size-3 text-violet-500" />
-          <span className="font-medium">{TOOL_NAMES[call.name] ?? call.name.replace(/_/g, " ")}</span>
-          {call.summary ? <span className="truncate text-violet-800/80">{call.summary}</span> : null}
+          <Icon name="bolt" className="size-3 text-taupe" />
+          <span className="font-medium text-ink">{TOOL_NAMES[call.name] ?? call.name.replace(/_/g, " ")}</span>
+          {call.summary ? <span className="truncate text-muted">{call.summary}</span> : null}
         </li>
       ))}
     </ul>
@@ -83,7 +83,7 @@ function ToolChips({ calls }: { calls: ChatMessage["toolCalls"] }) {
 
 function AssistantAvatar() {
   return (
-    <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-full bg-accent-soft text-accent ring-1 ring-accent/15">
+    <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center bg-charcoal text-white">
       <Icon name="bot" className="size-4" />
     </span>
   );
@@ -117,7 +117,7 @@ function MessageBubble({ message, propertyId }: { message: ChatMessage; property
           <p className="mb-1 text-right text-[11px] text-muted">
             {message.author ?? "You"} · <time dateTime={message.createdAt} title={formatDateTime(message.createdAt)}>{formatTime(message.createdAt)}</time>
           </p>
-          <div className="rounded-2xl rounded-tr-md bg-navy px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-white">{message.text}</div>
+          <div className="rounded-2xl rounded-tr-none bg-charcoal px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-white">{message.text}</div>
         </div>
       </li>
     );
@@ -129,7 +129,7 @@ function MessageBubble({ message, propertyId }: { message: ChatMessage; property
         <p className="mb-1 text-[11px] text-muted">
           <time dateTime={message.createdAt} title={formatDateTime(message.createdAt)}>{formatTime(message.createdAt)}</time>
         </p>
-        <div className="rounded-2xl rounded-tl-md border border-line bg-surface px-4 py-3">
+        <div className="rounded-2xl rounded-tl-none border border-line bg-surface px-4 py-3">
           <ToolChips calls={message.toolCalls} />
           <RichText text={message.text} />
           {message.citations.length ? (
@@ -147,10 +147,10 @@ function TypingBubble({ label }: { label: string }) {
   return (
     <li className="flex gap-3" aria-live="polite">
       <AssistantAvatar />
-      <div className="flex items-center gap-2.5 rounded-2xl rounded-tl-md border border-line bg-surface px-4 py-3 text-[13px] text-muted">
+      <div className="flex items-center gap-2.5 rounded-2xl rounded-tl-none border border-line bg-surface px-4 py-3 text-[13px] text-muted">
         <span aria-hidden="true" className="flex gap-1">
           {[0, 150, 300].map((delay) => (
-            <span key={delay} className="size-1.5 animate-soft-pulse rounded-full bg-accent" style={{ animationDelay: `${delay}ms` }} />
+            <span key={delay} className="size-1.5 animate-soft-pulse rounded-full bg-taupe" style={{ animationDelay: `${delay}ms` }} />
           ))}
         </span>
         <span>{label}</span>
@@ -168,7 +168,7 @@ function Suggestions({ items, onPick, disabled }: { items: string[]; onPick: (te
             type="button"
             disabled={disabled}
             onClick={() => onPick(text)}
-            className="rounded-full border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] text-ink-soft transition-colors hover:border-accent/40 hover:bg-accent-soft hover:text-accent-strong disabled:opacity-60"
+            className="border border-line-input bg-surface px-3.5 py-1.5 text-[13px] text-ink-soft transition-colors hover:border-ink hover:text-ink disabled:opacity-60"
           >
             {text}
           </button>
@@ -266,7 +266,7 @@ export function ChatPanel({
     <Card className={cx("flex flex-col overflow-hidden", className)}>
       <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5 sm:py-4">
         <div className="min-w-0">
-          <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
+          <h2 className="heading-display text-[13px] leading-6 text-ink">{title}</h2>
           <p className="mt-0.5 hidden text-[13px] text-muted sm:block">{description}</p>
         </div>
         <Button
@@ -291,10 +291,10 @@ export function ChatPanel({
           <ErrorState error={history.error} onRetry={history.reload} title="Couldn't load the conversation" compact />
         ) : empty ? (
           <div className="flex h-full flex-col items-center justify-center py-8 text-center">
-            <span className="grid size-12 place-items-center rounded-2xl bg-accent-soft text-accent">
+            <span className="grid size-12 place-items-center bg-charcoal text-white">
               <Icon name="bot" className="size-6" />
             </span>
-            <p className="mt-3 text-sm font-semibold text-ink">Ask {assistantName}</p>
+            <p className="mt-4 text-sm font-semibold text-ink">Ask {assistantName}</p>
             <p className="mt-1 mb-5 max-w-sm text-[13px] text-muted">{intro}</p>
             <Suggestions items={suggestions} onPick={submit} disabled={!!pending} />
           </div>
@@ -342,7 +342,7 @@ export function ChatPanel({
                 key={text}
                 type="button"
                 onClick={() => submit(text)}
-                className="shrink-0 rounded-full border border-line px-3 py-1 text-xs text-muted hover:border-accent/40 hover:text-accent-strong"
+                className="shrink-0 border border-line-strong px-3 py-1 text-xs text-ink-soft hover:border-ink hover:text-ink"
               >
                 {text}
               </button>
