@@ -62,11 +62,13 @@ export const handleError: ErrorHandler = (err, c) => {
 // Request guards
 // ---------------------------------------------------------------------------
 
-/** Adds no-store caching and nosniff to every API response (handlers may set their own Cache-Control). */
+/** Adds no-store caching, nosniff, no framing and a same-origin referrer policy to every API response (handlers may set their own Cache-Control). */
 export const apiResponseHeaders: MiddlewareHandler = async (c, next) => {
   await next();
   if (!c.res.headers.has("Cache-Control")) c.res.headers.set("Cache-Control", "no-store");
   c.res.headers.set("X-Content-Type-Options", "nosniff");
+  c.res.headers.set("X-Frame-Options", "DENY");
+  c.res.headers.set("Referrer-Policy", "same-origin");
 };
 
 export interface RequestGuardOptions {
