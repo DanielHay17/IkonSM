@@ -57,6 +57,11 @@ export async function draftReply(env: Env, input: DraftInput): Promise<DraftResu
   const provider = aiProvider(env).kind;
   if (provider === "off") return templateDraft(input);
   const name = provider === "workers-ai" ? "Workers AI" : "Claude";
+  // Light mode sees only search snippets: in testing it left out the water main and 000 from emergency replies and
+  // could not write a usable dispatch. Emergencies and contractor dispatches use the checked template instead.
+  if (provider === "workers-ai" && (input.purpose === "dispatch" || input.triage.priority === "P1")) {
+    return templateDraft(input, input.purpose === "dispatch" ? "Workers AI light mode: dispatches use the checked template" : "Workers AI light mode: emergencies use the checked template");
+  }
   try {
     const draft = provider === "workers-ai" ? await workersDraft(env, input) : await claudeDraft(env, input, provider);
     if (draft) return draft;
@@ -81,7 +86,10 @@ function firstName(name: string | null): string | null {
   return first.replace(/[,;:]+$/, "");
 }
 
+const ORGANISATION = /\b(pty|ltd|limited|inc|llc|co|company|group|services|settlements?|conveyancing|conveyancers?|lawyers|legal|solicitors|realty|real estate|partners|associates|plumbing|electrical|insurance|council|team|department|accounts)\b/i;
+
 function greeting(name: string | null): string {
+  if (name && ORGANISATION.test(name)) return "Hello,";
   return `Hi ${firstName(name) ?? "there"},`;
 }
 
@@ -200,7 +208,7 @@ function phoneDigits(raw: string): string {
   return digits.length === 11 && digits.startsWith("61") ? `0${digits.slice(2)}` : digits;
 }
 
-const PHONE_CANDIDATE = /(?<![\d$.,])\+?\d[\d\s()-]{4,}\d(?![\d])/g;
+const PHONE_CANDIDATE = /(?<![\p{L}\d$.,])\+?\d[\d\s()-]{4,}\d(?![\p{L}\d])/gu;
 const NOT_A_PHONE = /^(\d{4}\s*-\s*\d{2}\s*-\s*\d{2}|\d{4}\s*-\s*\d{4})$/;
 
 function phoneNumbersIn(text: string): string[] {
@@ -303,13 +311,22 @@ async function workersDraft(env: Env, input: DraftInput): Promise<DraftResult | 
   );
 }
 
+/** An emergency reply that never mentions 000 gets the triage safety notice straight after the greeting. */
+function withSafetyNotice(body: string, input: DraftInput): string {
+  if (input.purpose !== "reply" || input.triage.priority !== "P1" || /\b000\b/.test(body)) return body;
+  const notice = input.triage.safetyNotice && /\b000\b/.test(input.triage.safetyNotice) ? input.triage.safetyNotice : "If anyone is in danger, call 000 now.";
+  const [first, ...rest] = body.split("\n");
+  if (first && first.length <= 60 && /,\s*$/.test(first)) return [first, "", notice, ...rest].join("\n");
+  return `${notice}\n\n${body}`;
+}
+
 /** Post-processing shared by every model-written draft: WA terminology, exact sign-off, phone check. */
 async function finishDraft(
   input: DraftInput,
   raw: { subject: string; body: string; rationale: string; citations: Citation[] },
   engine: Pick<DraftResult, "engine" | "model" | "provider">,
 ): Promise<DraftResult> {
-  const body = ensureSignOff(enforceWaTerminology(raw.body), input);
+  const body = withSafetyNotice(ensureSignOff(enforceWaTerminology(raw.body), input), input);
   const fallbackSubject = input.purpose === "reply" ? replySubject(input.thread.subject) : dispatchSubject(input);
   const subject = enforceWaTerminology(raw.subject.replace(/\s+/g, " ").trim()) || fallbackSubject;
   let rationale = raw.rationale;
@@ -447,6 +464,17 @@ const WATER_MAIN = [/(water main|main water|stop[- ]?cock|stopcock|isolat(ion|in
 const AFTER_HOURS_PLUMBER = [/plumb/i, /(after[- ]?hours|24\/7|24 ?hours?|emergency)/i];
 const ACCESS_INFO = [/(access|keys?|lock ?box|key safe|fob|swipe|code)/i];
 
+const FROM_ABOVE = /\b(from above|from upstairs|(unit|apartment|lot|flat|neighbour)s? above|upstairs (unit|neighbour|apartment|lot|flat)|above (me|us)|unit upstairs|lot upstairs)\b/i;
+
+function latestInbound(input: DraftInput): string {
+  const latest = [...input.messages].reverse().find((m) => m.direction === "inbound");
+  return `${input.thread.subject} ${latest?.text ?? ""}`;
+}
+
+function fromAbove(facts: Facts): boolean {
+  return FROM_ABOVE.test(latestInbound(facts.input));
+}
+
 async function emergencySection(facts: Facts): Promise<string[]> {
   const { triage } = facts.input;
   if (!isWaterIssue(triage)) {
@@ -470,7 +498,9 @@ async function emergencySection(facts: Facts): Promise<string[]> {
     "3. If water is near electrics, switch the power off at your switchboard, but only if you can do it without touching water.",
     "4. Contain the water with buckets and towels, and move valuables and electrical items out of the way.",
     "5. Take photos and video of the damage (and the source, if you can see it) with the time noted, and keep any damaged items. The insurer may need them.",
-    "6. Let your neighbours know, especially the lot below, and if the lot is tenanted, your tenant or property manager.",
+    fromAbove(facts)
+      ? "6. Let your neighbours know, especially the lot above, where the water may be coming from, and if the lot is tenanted, your tenant or property manager."
+      : "6. Let your neighbours know, especially the lot below, and if the lot is tenanted, your tenant or property manager.",
   ];
 }
 
@@ -557,7 +587,8 @@ function maintenanceBody(facts: Facts): string[] {
   ];
 }
 
-function levyBody(): string[] {
+function levyBody(facts: Facts): string[] {
+  const wantsBudget = /\b(budget|financial statements?|accounts for)\b/i.test(latestInbound(facts.input));
   return [
     "Thanks for your email about your contributions (levies).",
     "",
@@ -567,6 +598,7 @@ function levyBody(): string[] {
     "1. Contributions are set from the budget approved at the strata company's AGM and are payable by the due dates on the levy notice.",
     "2. If you're having trouble paying, please tell us as soon as possible. We can put a request for a payment arrangement to the council.",
     "3. Overdue contributions attract interest under the regulations, so if you think a notice is wrong, let us know rather than waiting.",
+    ...(wantsBudget ? ["", "We'll also send you a copy of the current budget approved at the AGM, which sets out what the contributions pay for."] : []),
   ];
 }
 
@@ -594,22 +626,30 @@ function disclosureBody(facts: Facts): string[] {
       "Under section 108 we provide the name and address for service of a council member or officer. We'll provide it within 14 days of the fee being paid.",
     ];
   }
+  const text = latestInbound(facts.input);
+  const lot = text.match(/\blot\s+(\d{1,4}[a-z]?)\b/i)?.[1];
+  const feePaid = /\b(fee|payment) (has been |was |is )?(paid|made|sent)|\bpaid (the |by |via )|\bremittance\b/i.test(text);
+  const certificates = "whether you need a s110(1) certificate (management contract, insurance, unregistered dealings), a s110(2) certificate (contributions, arrears and interest), or both";
   return [
-    `Thanks for your request regarding a section 110 certificate for SP ${property.spNumber}.`,
+    `Thanks for your request for a section 110 certificate${lot ? ` for Lot ${lot}` : ""}, SP ${property.spNumber}.`,
     "",
     "To issue the certificate we need:",
     `1. A written request (this email is fine) from the owner, a buyer who has entered into a contract, a mortgagee, or someone they have authorised in writing, such as a settlement agent${REG_85}. If you're acting for someone else, please attach their written authority.`,
-    "2. The lot number and the owner's name, and whether you need a s110(1) certificate (management contract, insurance, unregistered dealings), a s110(2) certificate (contributions, arrears and interest), or both.",
-    "3. Payment of the fee. The maximum fee set by the regulations is $140 per certificate, plus GST where applicable. The request is not validly made until the fee is paid.",
+    lot ? `2. The owner's name, and ${certificates}.` : `2. The lot number and the owner's name, and ${certificates}.`,
+    feePaid
+      ? "3. The fee. Thanks for letting us know it has been paid: our accounts team will match the payment and confirm. The maximum fee set by the regulations is $140 per certificate, plus GST where applicable."
+      : "3. Payment of the fee. The maximum fee set by the regulations is $140 per certificate, plus GST where applicable. The request is not validly made until the fee is paid.",
     "",
-    "We'll issue the certificate within 14 days of the fee being paid. Our accounts team will send you payment details.",
+    feePaid
+      ? "We'll issue the certificate within 14 days of the fee being paid."
+      : "We'll issue the certificate within 14 days of the fee being paid. Our accounts team will send you payment details.",
   ];
 }
 
 const CONDUCT_TOPICS: [RegExp, string, string][] = [
   [/noise|noisy|loud|music|part(y|ies)/i, "noise", "noise by-law"],
   [/\bpark(ing|ed)\b|\bcar bays?\b|\bvisitor bays?\b/i, "parking", "parking by-law"],
-  [/pet|dog|cat|bark/i, "pets", "pets animals by-law"],
+  [/pet|dog|cat|bark/i, "pet", "pets animals by-law"],
   [/smok|cigarette|vap/i, "smoking", "smoking by-law"],
   [/rubbish|litter|bin/i, "rubbish", "rubbish by-law"],
   [/airbnb|short[- ]stay|holiday/i, "short-stay letting", "short stay letting by-law"],
@@ -634,25 +674,47 @@ async function conductBody(facts: Facts): Promise<string[]> {
   const topic = CONDUCT_TOPICS.find(([pattern]) => pattern.test(haystack));
   const fact = topic ? await findFact(facts, topic[2], [new RegExp(topic[0].source, "i")]) : null;
   if (!fact) await citeTopDoc(facts, "conduct by-laws");
+  const message = input.messages.at(-1)?.text ?? "";
+  const alreadyAsked = /\b(spoken|spoke|talked|asked|told|knocked|approached|raised it)\b[^.\n]{0,40}\b(them|him|her|neighbours?|owners?|tenants?)\b|\bpolitely\b/i.test(message);
+  const lotNamed = /\b(lot|unit|apartment)\s+\d{1,4}[a-z]?\b/i.test(message);
+  const steps = [
+    ...(alreadyAsked ? [] : ["If you feel comfortable, a friendly word with the neighbour often sorts things out quickly."]),
+    `Please send us the details: dates and times, what happened, ${lotNamed ? "" : "the lot involved if you know it, "}and any photos or recordings you can share.`,
+    `We'll check the registered by-laws for SP ${input.property.spNumber} and, where there appears to be a breach, write to the owner (and their property manager if the lot is leased) on behalf of the strata company.`,
+    "If it continues, the council can consider further steps, and disputes can be taken to the State Administrative Tribunal (SAT).",
+  ];
   return [
-    `Thanks for raising this${topic ? ` (${topic[1]})` : ""}, and sorry you're having to deal with it.`,
+    `Thanks for raising ${topic ? `this ${topic[1]} issue` : "this"}${alreadyAsked ? ", and for trying to sort it out directly first" : ""}. Sorry you're having to deal with it.`,
     "",
     "The scheme by-laws (the conduct by-laws) apply to everyone living in or visiting the building, including tenants.",
     ...(fact ? [`The relevant by-law in our records: "${fact.text}"`] : []),
     "",
     "Here's how we handle it:",
-    "1. If you feel comfortable, a friendly word with the neighbour often sorts things out quickly.",
-    "2. Please send us the details: dates and times, what happened, the lot involved if you know it, and any photos you can share.",
-    `3. We'll check the registered by-laws for SP ${input.property.spNumber} and, where there appears to be a breach, write to the owner (and their property manager if the lot is leased) on behalf of the strata company.`,
-    "4. If it continues, the council can consider further steps, and disputes can be taken to the State Administrative Tribunal (SAT).",
+    ...steps.map((step, i) => `${i + 1}. ${step}`),
     "",
     "If anyone is threatened or at risk, call police on 000.",
   ];
 }
 
-function approvalBody(facts: Facts): string[] {
+const APPROVAL_TOPICS: { ask: RegExp; query: string; patterns: RegExp[] }[] = [
+  { ask: /\b(floor(ing|s)?|timber|tiles?|tiling|vinyl|laminate|underlay|carpet)\b/i, query: "floor coverings acoustic underlay", patterns: [/(floor cover|hard floor|acoustic underlay|underlay)/i] },
+  { ask: /\b(air[- ]?con\w*|split system|condenser|heat pump)\b/i, query: "air conditioning condenser approval", patterns: [/(air[- ]?con|condenser|split system)/i] },
+];
+
+async function approvalFacts(facts: Facts, text: string): Promise<string[]> {
+  const lines: string[] = [];
+  for (const topic of APPROVAL_TOPICS) {
+    if (!topic.ask.test(text)) continue;
+    const fact = await findFact(facts, topic.query, topic.patterns);
+    if (fact && !lines.includes(fact.text)) lines.push(fact.text);
+  }
+  return lines;
+}
+
+async function approvalBody(facts: Facts): Promise<string[]> {
   const text = `${facts.input.thread.subject} ${facts.input.messages.at(-1)?.text ?? ""}`;
   const pet = /\b(pet|dog|cat|puppy|kitten)/i.test(text);
+  const byLaws = pet ? [] : await approvalFacts(facts, text);
   const checklist = pet
     ? [
         "1. The type and number of animals and how they will be kept.",
@@ -667,7 +729,10 @@ function approvalBody(facts: Facts): string[] {
   return [
     "Thanks for checking with us first.",
     "",
-    "Some changes to a lot need the strata company's approval under the scheme by-laws, particularly structural work, anything affecting common property or the outside appearance of the building, air-conditioning units, and pets. Depending on what is involved, approval comes from the council or a general meeting.",
+    pet
+      ? "Keeping an animal in the building needs the strata company's approval under the scheme by-laws. Depending on the by-laws, approval comes from the council or a general meeting."
+      : "Some changes to a lot need the strata company's approval under the scheme by-laws, particularly structural work, anything affecting common property or the outside appearance of the building, and air-conditioning units. Depending on what is involved, approval comes from the council or a general meeting.",
+    ...(byLaws.length > 0 ? ["", byLaws.length === 1 ? `The relevant by-law in our records: "${byLaws[0]}"` : "The relevant by-laws in our records:", ...(byLaws.length > 1 ? byLaws.map((line) => `- ${line}`) : [])] : []),
     "",
     "To put your request forward, please send:",
     ...checklist,
@@ -751,7 +816,7 @@ async function replyBody(facts: Facts): Promise<string[]> {
       return maintenanceBody(facts);
     case "levies":
       await citeTopDoc(facts, "contributions levies budget");
-      return levyBody();
+      return levyBody(facts);
     case "sales_disclosure":
       await citeTopDoc(facts, "section 110 certificate disclosure fees");
       return disclosureBody(facts);
@@ -759,7 +824,7 @@ async function replyBody(facts: Facts): Promise<string[]> {
       return conductBody(facts);
     case "owner_approval":
       await citeTopDoc(facts, "by-laws approval alterations");
-      return approvalBody(facts);
+      return await approvalBody(facts);
     case "governance":
       return governanceBody();
     case "insurance":

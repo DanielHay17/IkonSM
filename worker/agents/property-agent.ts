@@ -567,7 +567,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
    * is set (only the vault search screen, which labels them); the agents never see them as records.
    */
   async searchDocs(query: string, limit = 8, opts: { includeEmailed?: boolean } = {}): Promise<SearchHit[]> {
-    return this.searchIndex(query, limit, { includeEmailed: opts?.includeEmailed === true });
+    return this.searchIndex(query, limit, { includeEmailed: opts?.includeEmailed === true, preferDefinitions: true });
   }
 
   // -------------------------------------------------------------------------

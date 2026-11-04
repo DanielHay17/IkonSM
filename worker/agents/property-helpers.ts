@@ -487,13 +487,14 @@ export function offlineAnswer(
   hits: SearchHit[],
   contactLines: string[] = [],
 ): { text: string; citations: Citation[] } {
+  // A contact that answers the question ("Who is our after-hours plumber?") goes first, above the document passages.
   const contacts = contactLines.length ? `\n\nFrom this building's contacts:\n${contactLines.map((l) => `- ${l}`).join("\n")}` : "";
   if (hits.length === 0) {
-    return { text: `${reason}\n\nI found nothing in this building's documents that matches the question.${contacts}`, citations: [] };
+    return { text: `${reason}${contacts}\n\nI found nothing in this building's documents that matches the question.`, citations: [] };
   }
   const lines = hits.map((hit) => `- ${hit.docName} (${hit.folder}): ${plainPassage(hit.snippet)}`);
   return {
-    text: `${reason}\n\nThe most relevant passages in this building's documents are:\n${lines.join("\n")}${contacts}`,
+    text: `${reason}${contacts}\n\nThe most relevant passages in this building's documents are:\n${lines.join("\n")}`,
     citations: citationsFrom(hits),
   };
 }

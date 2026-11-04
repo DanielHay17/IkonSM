@@ -73,6 +73,13 @@ describe("Chief of Staff", () => {
     expect(p1.text).toContain("SP 26707");
     expect(p1.toolCalls.map((t) => t.name)).toContain("list_properties");
 
+    // "What needs my attention today?" covers emergencies, approvals and statutory deadlines in one answer.
+    await simulate(cookie, "sp-43464", { ...s110Request(tag()), subject: `s110 certificate for Lot 3 (${tag()})` });
+    const attention = await callJson<ChatMessage>("/api/cos/chat", { cookie, json: { text: "What needs my attention today?" } });
+    expect(attention.text).toContain("P1 emergencies - act now");
+    expect(attention.text).toMatch(/Waiting for approval \(\d+\)/);
+    expect(attention.text).toMatch(/Statutory deadlines\n(- .*\n)*- SP 43464 .*s110: within 14 days of fee paid/);
+
     const docs = await callJson<ChatMessage>("/api/cos/chat", { cookie, json: { text: "SP 26707: where is the water main?" } });
     expect(docs.text).toMatch(/^AI offline: /);
     expect(docs.text).toMatch(/water main/i);

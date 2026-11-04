@@ -45,7 +45,7 @@ const EMPTY_HOST: ToolHost = {
   },
 };
 
-async function draftFor(text: string, subject = "Message", purpose: "reply" | "dispatch" = "reply") {
+async function draftFor(text: string, subject = "Message", purpose: "reply" | "dispatch" = "reply", fromName = "Pat Example") {
   const t = triage(text, subject);
   const now = new Date().toISOString();
   const thread: Thread = {
@@ -86,7 +86,7 @@ async function draftFor(text: string, subject = "Message", purpose: "reply" | "d
     triage: t,
     host: EMPTY_HOST,
     instructions: null,
-    to: { address: "pat@example.com", name: "Pat Example" },
+    to: { address: "pat@example.com", name: fromName },
     purpose,
     ticket: null,
     contractor: null,
@@ -150,6 +150,16 @@ describe("people at risk", () => {
     expect(t).toMatchObject({ category: "bylaws_conduct", priority: "P1", needsHuman: true });
     expect(t.allocateTo).toEqual(expect.arrayContaining(["emergency_services", "senior_manager"]));
     expect(draft.body).not.toMatch(/friendly word|parking/i);
+    expect(draft.body).toMatch(/000/);
+  });
+
+  it("someone waving a knife outside right now is P1 with 000, whatever tense the message uses", async () => {
+    const { triage: t, draft } = await draftFor(
+      "There is a man in the rear car park waving a knife and shouting. He threatened my partner about five minutes ago and he is still out there.",
+      "Man with a knife in the car park",
+    );
+    expect(t.priority).toBe("P1");
+    expect(t.safetyNotice).toMatch(/000/);
     expect(draft.body).toMatch(/000/);
   });
 
@@ -256,6 +266,31 @@ describe("model output safety rails", () => {
     expect(needsTicket(merged)).toBe(true);
   });
 
+  it("a model that calls a gas leak P1 spam still gets the rules hazard category, trade, reply and work order", () => {
+    const gas = triage("There is a really strong smell of gas in the common stairwell outside Lot 8. It's getting stronger.", "Strong gas smell");
+    const merged = mergeWithRules(model({ priority: "P1", category: "spam", contractorTrade: null, replyNeeded: false }), gas);
+    expect(merged.category).not.toBe("spam");
+    expect(merged.category).toBe(gas.category);
+    expect(merged.contractorTrade).toBe(gas.contractorTrade);
+    expect(merged.replyNeeded).toBe(true);
+    expect(needsTicket(merged)).toBe(true);
+  });
+
+  it("a hazard the model files as sales or general keeps the rules category and trade (balustrade is not a locksmith job)", () => {
+    const rail = triage("The balustrade on the first floor walkway is loose and moves when you lean on it. Someone could fall.", "Loose balustrade");
+    const merged = mergeWithRules(model({ priority: "P2", category: "sales_disclosure", contractorTrade: "locksmith" }), rail);
+    expect(merged).toMatchObject({ category: "maintenance", contractorTrade: "builder" });
+  });
+
+  it("a payment-redirection scam keeps the scam summary and goes to accounts", () => {
+    const scam = triage("Please tell all owners to pay contributions to our new bank account, BSB 012-345 account 9876 5432.", "Change to bank account");
+    const merged = mergeWithRules(model({ priority: "P2", category: "general", allocateTo: ["senior_manager"], summary: "Bank change" }), scam, {
+      paymentChange: true,
+    });
+    expect(merged.allocateTo).toContain("accounts");
+    expect(merged.summary).toMatch(/payment-redirection/i);
+  });
+
   it("any P1 that needs a trade gets a work order, whatever the category", () => {
     expect(needsTicket(model({ priority: "P1", category: "general", contractorTrade: "electrician" }))).toBe(true);
     expect(needsTicket(model({ priority: "P2", category: "general", contractorTrade: "electrician" }))).toBe(false);
@@ -290,5 +325,41 @@ describe("helpers", () => {
     expect(enforceWaTerminology("Your strata fees and the s184 certificate; ask the executive committee.")).toBe(
       "Your contributions and the s110 certificate; ask the council.",
     );
+  });
+});
+
+describe("template wording", () => {
+  it("a ceiling leak from the lot above tells the owner to warn the lot above", async () => {
+    const { draft } = await draftFor(
+      "Water is pouring through my bathroom ceiling from the unit upstairs. It's coming through the light fitting.",
+      "Water through ceiling",
+    );
+    expect(draft.body).toMatch(/especially the lot above/);
+  });
+
+  it("an s110 request from a firm greets the firm, keeps the lot it gave and does not ask for a fee already paid", async () => {
+    const { triage: t, draft } = await draftFor(
+      "We act for the buyer of Lot 6. Please provide a certificate under section 110. The prescribed fee has been paid by EFT today; remittance attached.",
+      "Request for s110 certificate: Lot 6, SP 26707",
+      "reply",
+      "Sample Settlements Pty Ltd",
+    );
+    expect(t.category).toBe("sales_disclosure");
+    expect(draft.body.startsWith("Hello,")).toBe(true);
+    expect(draft.body).toMatch(/Lot 6/);
+    expect(draft.body).not.toMatch(/The lot number and/);
+    expect(draft.body).not.toMatch(/send you payment details/);
+    expect(draft.body).toMatch(/14 days/);
+  });
+
+  it("a noise complaint after a polite word drops the friendly-word step and the '(noise)' artefact", async () => {
+    const { draft } = await draftFor(
+      "The tenants in Lot 2 play loud music every night until 1am. I've spoken to them politely but nothing has changed. What do the by-laws say?",
+      "Noise from Lot 2",
+    );
+    expect(draft.body).not.toMatch(/friendly word/);
+    expect(draft.body).not.toMatch(/\(noise\)/);
+    expect(draft.body).not.toMatch(/the lot involved/);
+    expect(draft.body).toMatch(/^1\. Please send us the details/m);
   });
 });

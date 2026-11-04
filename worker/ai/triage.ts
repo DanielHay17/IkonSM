@@ -100,6 +100,8 @@ async function workersTriage(env: Env, input: TriageInput): Promise<Triage | nul
 }
 
 const WORK_CATEGORIES: readonly Category[] = ["maintenance", "insurance"];
+/** Categories a model sometimes picks for an emergency that cannot hold a repair. */
+const NEVER_A_HAZARD: readonly Category[] = ["spam", "general", "sales_disclosure"];
 
 /** Applies deterministic safety rails on top of the model's answer. */
 export function mergeWithRules(ai: Triage, rules: Triage, signals: { paymentChange: boolean } = { paymentChange: false }): Triage {
@@ -109,13 +111,36 @@ export function mergeWithRules(ai: Triage, rules: Triage, signals: { paymentChan
     merged.needsHuman = true;
     merged.allocateTo = [...rules.allocateTo, ...ai.allocateTo];
     merged.contractorTrade = ai.contractorTrade ?? rules.contractorTrade;
-    // A rules-detected emergency repair keeps its work category so it still gets a work order and dispatch.
-    if (WORK_CATEGORIES.includes(rules.category) && !WORK_CATEGORIES.includes(ai.category)) merged.category = rules.category;
+  }
+  // A hazard the rules engine recognised (gas, fire, lift, water, balustrade, asbestos...) keeps its work category and
+  // trade when the model filed it somewhere no repair can live (spam, general, sales): otherwise it gets no work order,
+  // no dispatch, or the wrong trade.
+  const rulesHazard = WORK_CATEGORIES.includes(rules.category) && (rules.priority === "P1" || rules.confidence >= 0.7);
+  if (rulesHazard && !WORK_CATEGORIES.includes(ai.category) && NEVER_A_HAZARD.includes(ai.category)) {
+    merged.category = rules.category;
+    merged.contractorTrade = rules.contractorTrade ?? merged.contractorTrade;
+    merged.allocateTo = [...rules.allocateTo, ...merged.allocateTo];
+    merged.responsibility = rules.responsibility;
+    merged.responsibilityReason = rules.responsibilityReason;
+    if (rules.replyNeeded) merged.replyNeeded = true;
+  } else if (rules.priority === "P1" && WORK_CATEGORIES.includes(rules.category) && !WORK_CATEGORIES.includes(merged.category)) {
+    merged.category = rules.category;
+  }
+  if (merged.priority === "P1") {
+    if (!merged.contractorTrade && WORK_CATEGORIES.includes(merged.category)) merged.contractorTrade = rules.contractorTrade;
+    // An emergency is never spam: it gets a reply with safety advice and, where there is a trade, a work order.
+    if (merged.category === "spam") {
+      merged.category = rules.category === "spam" ? "general" : rules.category;
+      merged.contractorTrade ??= rules.contractorTrade;
+      if (!merged.suspectedPromptInjection) merged.replyNeeded = true;
+    }
   }
   if (signals.paymentChange) {
     // Bank-detail change requests are verified by phone on a number already on file, never answered by email.
     merged.replyNeeded = false;
     merged.needsHuman = true;
+    merged.allocateTo = [...merged.allocateTo, ...rules.allocateTo];
+    if (/payment-redirection/i.test(rules.summary)) merged.summary = truncate(rules.summary, 160, "…");
   }
   if (rules.suspectedPromptInjection) merged.suspectedPromptInjection = true;
   if (rules.needsHuman && rules.confidence >= 0.6) merged.needsHuman = true;
@@ -287,7 +312,8 @@ const P = {
   presentWater: /\b(now|right now|currently|still|at the moment|today|tonight|is (pouring|leaking|flooding|coming)|are (pouring|leaking|flooding|coming))\b/,
   threat:
     /\b(knife|knives|machete|weapon|gun|firearm|threaten\w* (to (kill|hurt|stab|bash)|me with|my life)|assault\w*|attacked me|hit me|punched (me|him|her)|stalk\w*|domestic violence)\b/,
-  threatUrgent: /\b(tonight|right now|just now|scared|afraid|frightened|terrified)\b/,
+  threatUrgent:
+    /\b(tonight|right now|just now|scared|afraid|frightened|terrified|still (out )?there|still outside|still (in|at) the|(few |five |ten |\d+ )?minutes ago|waving|brandish\w*|pointing|pulled (out )?a)\b/,
   fallHazard:
     /\b(balustrades?|handrails?|hand rails?|railings?|balcony rails?|stair (treads?|nosings?)|nosings?|treads?)\b[^.\n]{0,40}\b(loose|wobbl\w*|unstable|come away|coming away|came away|missing|broken|moving|gave way)\b|\b(loose|wobbly|broken|missing)\b[^.\n]{0,20}\b(balustrades?|handrails?|railings?|nosings?)\b/,
   fallUrgent: /\b(kids|child|children|toddler|lean\w*|fell|fall\w*)\b/,

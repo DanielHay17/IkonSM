@@ -318,6 +318,21 @@ function deadlineSection(snaps: PropertySnapshot[]): string | null {
   return section("Statutory deadlines", lines);
 }
 
+/** Threads held for a person because they look like an attack: prompt injection or a bank-detail change. */
+function flaggedThreads(s: PropertySnapshot): Thread[] {
+  return s.openThreads.filter((t) => t.triage?.suspectedPromptInjection || /payment-redirection/i.test(t.triage?.summary ?? ""));
+}
+
+function flaggedSection(snaps: PropertySnapshot[]): string | null {
+  const lines = snaps.flatMap((s) =>
+    flaggedThreads(s).map((t) => {
+      const why = t.triage?.suspectedPromptInjection ? "possible prompt injection" : "possible payment-redirection scam";
+      return `${propertyName(s.profile)}: ${why}, no reply drafted - ${threadLine(t)}`;
+    }),
+  );
+  return section("Flagged for review (suspicious emails, no reply drafted)", lines);
+}
+
 function p2Section(snaps: PropertySnapshot[]): string | null {
   const lines = snaps.flatMap((s) => p2Threads(s).map((t) => `${propertyName(s.profile)}: ${threadLine(t)}`));
   return section("Urgent (P2)", lines);
@@ -367,6 +382,7 @@ function rulesBriefText(snaps: PropertySnapshot[], now: Date, footer: string): s
     p1Section(snaps),
     approvalsSection(snaps),
     deadlineSection(snaps),
+    flaggedSection(snaps),
     p2Section(snaps),
     byBuildingSection(snaps),
     onboardingSection(snaps),
@@ -1240,6 +1256,17 @@ export class ChiefOfStaffAgent extends Agent<Env, CosState> {
         const snap = snaps.find((s) => s.entry.id === id);
         if (snap) parts.push(await this.propertyAnswer(snap, question, toolCalls, citations));
       }
+    } else if (/attention|today|priorit|focus|overview|summar|catch (me )?up|what('s| is) (on|happening|going on)|what (do|should) i/.test(lower)) {
+      // "What needs my attention today?": everything a manager acts on, most urgent first.
+      parts.push(
+        headline(snaps),
+        p1Section(snaps),
+        approvalsSection(snaps),
+        deadlineSection(snaps) ?? "Statutory deadlines\n- None open.",
+        flaggedSection(snaps),
+        p2Section(snaps),
+        byBuildingSection(snaps),
+      );
     } else {
       if (/\bp1\b|emergenc|urgent|critical/.test(lower)) parts.push(p1Section(snaps), p2Section(snaps));
       if (/approv|sign[- ]?off|pending|waiting/.test(lower)) parts.push(approvalsSection(snaps));
@@ -1251,7 +1278,7 @@ export class ChiefOfStaffAgent extends Agent<Env, CosState> {
       }
       if (parts.length === 0) parts.push(this.matchingThreadsSection(snaps, question));
       if (parts.every((p) => !p)) {
-        parts.push(headline(snaps), p1Section(snaps), approvalsSection(snaps), byBuildingSection(snaps));
+        parts.push(headline(snaps), p1Section(snaps), approvalsSection(snaps), deadlineSection(snaps), flaggedSection(snaps), p2Section(snaps), byBuildingSection(snaps));
       }
     }
 
