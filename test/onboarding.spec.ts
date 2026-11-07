@@ -23,7 +23,10 @@ import {
   type OutgoingManagerContact,
 } from "../shared/onboarding";
 import { VAULT_FOLDERS, type Approval, type ChatMessage, type Contact, type DocMeta, type PortfolioBrief, type PropertyCard, type PropertyOverview } from "../shared/types";
-import { formatDay, newPortalToken, openToken, sealToken, sectionProgress, tokenHash } from "../worker/agents/onboarding";
+import { FINAL_APPROVAL_TASK_KEY, formatDay, newPortalToken, openToken, sealToken, sectionProgress, tokenHash } from "../worker/agents/onboarding";
+import { HANDOVER_LETTER_MAX_FILE_MB } from "../shared/handover-letter";
+import { HANDOVER_AUTO_ATTACH_CONFIDENCE } from "../shared/handover-match";
+import { MAX_UPLOAD_BYTES } from "../worker/docs/filing";
 import { ONBOARDING_TEMPLATE } from "../worker/seed/onboarding-template";
 import { DEMO_FRESH_ID, DEMO_PILOT_ID, demoHandoverPlan } from "../worker/seed/onboarding-demo";
 import { call, callJson, decide, listContacts, login, loginAndSeed, ORIGIN } from "./helpers";
@@ -32,6 +35,7 @@ import {
   agentRows,
   createProject,
   getProject,
+  GO_LIVE_TASKS,
   openHandover,
   portal,
   prepareInvite,
@@ -314,7 +318,7 @@ describe("onboarding projects", () => {
     expect(project.handoverItems.every((i) => i.status === "awaiting_supply" && i.files.length === 0)).toBe(true);
     expect(project.goLiveChecks.every((c) => c.status === "open")).toBe(true);
     expect(project.blockers).toContain("No handover invitation sent");
-    expect(project.blockers).toContain(`${TEMPLATE_TASKS} task${TEMPLATE_TASKS === 1 ? "" : "s"} still open`);
+    expect(project.blockers).toContain(`${GO_LIVE_TASKS} task${GO_LIVE_TASKS === 1 ? "" : "s"} still open`);
     expect(project.events).toHaveLength(1);
     expect(project.events[0]).toMatchObject({ kind: "project", actor: "Peter King" });
 
@@ -472,7 +476,7 @@ describe("go-live approval and closeout", () => {
     expect(body.blockers).toHaveLength(5);
     expect(body.blockers[0]).toMatch(/^\d+ sections? not reviewed: /);
     expect(body.blockers.slice(1)).toEqual([
-      `${TEMPLATE_TASKS} task${TEMPLATE_TASKS === 1 ? "" : "s"} still open`,
+      `${GO_LIVE_TASKS} task${GO_LIVE_TASKS === 1 ? "" : "s"} still open`,
       expect.stringMatching(/^\d+ required handover documents? not verified$/),
       `${TEMPLATE_CHECKS} go-live check${TEMPLATE_CHECKS === 1 ? "" : "s"} not done`,
       "No handover invitation sent",
@@ -504,9 +508,30 @@ describe("go-live approval and closeout", () => {
     const cookie = await loginAndSeed("Peter King");
     const id = "sp-23872";
     await createProject(cookie, id);
-    await completeProject(cookie, id);
+    const ready = await completeProject(cookie, id);
+
+    // Go-live doesn't wait for the closeout work, or for the final-approval task (approving completes it).
+    const qaTasks = ready.tasks.filter((t) => t.sectionKey === "readiness_closeout" && t.group.toLowerCase() === "completion & quality assurance");
+    const finalTask = ready.tasks.find((t) => t.key === FINAL_APPROVAL_TASK_KEY);
+    for (const t of [...qaTasks, ...(finalTask ? [finalTask] : [])]) await patchTask(cookie, id, t.id, { status: "open" });
+    expect((await getProject(cookie, id)).blockers).toEqual([]);
+    // Any other open task still blocks.
+    const other = ready.tasks.find((t) => t.sectionKey === "stratafy")!;
+    await patchTask(cookie, id, other.id, { status: "open" });
+    expect((await getProject(cookie, id)).blockers).toEqual(["1 task still open"]);
+    await patchTask(cookie, id, other.id, { status: "done" });
+
     const approved = await callJson<OnboardingProjectDetail>(`${base(id)}/approve`, { cookie, json: {} });
     expect(approved.events[0]!.summary).toBe("Peter King approved go-live");
+    if (finalTask) {
+      expect(approved.tasks.find((t) => t.id === finalTask.id)).toMatchObject({ status: "done", completedBy: "Peter King" });
+      expect(approved.events[1]).toMatchObject({ kind: "task", summary: `Peter King completed "${finalTask.title}"` });
+    }
+    if (qaTasks.length > 1) {
+      // Closeout needs the QA tasks: finish all but one, which the checks below reopen and exclude.
+      expect((await call(`${base(id)}/closeout`, { cookie, json: {} })).status).toBe(409);
+      for (const t of qaTasks.slice(1)) await patchTask(cookie, id, t.id, { status: "done" });
+    }
 
     const qa = approved.tasks.filter((t) => t.sectionKey === "readiness_closeout" && t.group.toLowerCase() === "completion & quality assurance");
     const reopen = (qa.length ? qa : approved.tasks.filter((t) => t.sectionKey === "readiness_closeout"))[0]!;
@@ -798,6 +823,12 @@ describe("onboarding edges", () => {
 // ===========================================================================
 
 describe("shared onboarding functions", () => {
+  it("keeps the shared constants in step with the Worker's limits", () => {
+    // The letter quotes the per-file limit and the matcher sets the auto-attach threshold; shared code can't import the Worker's.
+    expect(HANDOVER_LETTER_MAX_FILE_MB * 1024 * 1024).toBe(MAX_UPLOAD_BYTES);
+    expect(HANDOVER_AUTO_ATTACH_CONFIDENCE).toBe(0.5);
+  });
+
   it("staffForName maps a signed-in name to the register: full name or a unique first name, any case", () => {
     expect(staffForName("Peter King")?.id).toBe("peter-king");
     expect(staffForName("  PETER   king ")?.id).toBe("peter-king");

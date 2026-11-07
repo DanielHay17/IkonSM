@@ -80,7 +80,7 @@ Put the onboarding logic in a new module `worker/agents/onboarding.ts`, with fun
 - **Project counts:** see `ProjectCounts`.
 - **Blockers:** plain-English lines, empty when go-live can be approved. Each kind reports its count only when it is non-zero:
   - "3 sections not reviewed: Stratafy, Xero setup, Facilities & site"
-  - "12 tasks still open"
+  - "12 tasks still open" (not counting the Readiness & closeout "Completion & quality assurance" tasks, which gate closeout instead, or the "Give final go-live approval" task, which approving completes)
   - "8 required handover documents not verified"
   - "40 go-live checks not done"
   - "No handover invitation sent" (when no invite has ever been activated)

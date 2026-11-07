@@ -12,7 +12,7 @@
 // HKDF-derived from SESSION_SECRET) lets staff copy the link again. Portal uploads are filed with the
 // "handover:" uploader and stay out of the agents' trusted search until staff verify them.
 
-import { matchHandoverFile } from "../../shared/handover-match";
+import { HANDOVER_AUTO_ATTACH_CONFIDENCE, matchHandoverFile } from "../../shared/handover-match";
 import { renderHandoverLetter } from "../../shared/handover-letter";
 import {
   HANDOVER_UPLOAD_PREFIX,
@@ -75,10 +75,12 @@ const PORTAL_VISIT_GAP_MS = 10 * 60_000;
 const EVENT_LIMIT = 200;
 const DAY_MS = 86_400_000;
 const MAX_NOTE_CHARS = 2000;
-/** Matches below this confidence are filed as extra files. */
-const AUTO_MATCH_CONFIDENCE = 0.5;
-/** The group whose tasks must be done (or excluded) before closeout. */
+/** Matches below this confidence are filed as extra files (the matcher's own threshold, 0.5). */
+const AUTO_MATCH_CONFIDENCE = HANDOVER_AUTO_ATTACH_CONFIDENCE;
+/** The group whose tasks must be done (or excluded) before closeout; they come after go-live, so they don't block it. */
 const QA_GROUP = "Completion & quality assurance";
+/** The template task that approving go-live completes (so it never blocks its own approval). */
+export const FINAL_APPROVAL_TASK_KEY = "readiness_closeout.final-approval";
 export const OUTGOING_CONTACT_NOTE = "Outgoing strata manager (handover)";
 /** Meta keys: the building status after go-live approval (applied when the profile is read) and the project that set it. */
 export const STATUS_OVERRIDE_KEY = "status_override";
@@ -634,6 +636,20 @@ function readCounts(db: Db): ProjectCounts {
   };
 }
 
+function isQaGroup(group: string): boolean {
+  return group.trim().toLowerCase() === QA_GROUP.toLowerCase();
+}
+
+/**
+ * Open tasks that hold up go-live: every open task except the Readiness & closeout "Completion & quality
+ * assurance" ones (they gate closeout instead) and the final-approval task (approving completes it).
+ */
+function openTasksBeforeGoLive(db: Db): number {
+  return db
+    .all<{ section_key: string; task_key: string; group_name: string }>(`SELECT section_key, task_key, group_name FROM onboarding_tasks WHERE status = 'open'`)
+    .filter((r) => r.task_key !== FINAL_APPROVAL_TASK_KEY && !(r.section_key === "readiness_closeout" && isQaGroup(r.group_name))).length;
+}
+
 /** Why go-live can't be approved yet, in plain English; empty when it can. */
 function readBlockers(db: Db, sections: OnboardingSection[], counts: ProjectCounts): string[] {
   const blockers: string[] = [];
@@ -641,7 +657,7 @@ function readBlockers(db: Db, sections: OnboardingSection[], counts: ProjectCoun
   if (unreviewed.length > 0) {
     blockers.push(`${plural(unreviewed.length, "section")} not reviewed: ${unreviewed.map((s) => s.title).join(", ")}`);
   }
-  const openTasks = counts.tasks - counts.tasksDone - counts.tasksExcluded;
+  const openTasks = openTasksBeforeGoLive(db);
   if (openTasks > 0) blockers.push(`${plural(openTasks, "task")} still open`);
   const requiredOutstanding = count(
     db,
@@ -1087,6 +1103,18 @@ export function approveGoLive(h: OnboardingHost, input: { note?: string | null }
     // Stored as an override applied when the profile is read, so re-seeding the portfolio does not undo it.
     setMeta(h.db, STATUS_OVERRIDE_KEY, "active");
     setMeta(h.db, STATUS_OVERRIDE_PROJECT_KEY, project.id);
+    // The "Give final go-live approval" task is this approval.
+    const finalTask = one<TaskRow>(h.db, `SELECT * FROM onboarding_tasks WHERE task_key = ? AND status = 'open'`, FINAL_APPROVAL_TASK_KEY);
+    if (finalTask) {
+      h.db.run(
+        `UPDATE onboarding_tasks SET status = 'done', completed_by = ?, completed_at = ?, updated_at = ? WHERE id = ?`,
+        actor,
+        now,
+        now,
+        finalTask.id,
+      );
+      recordEvent(h.db, "task", actor, `${actor} completed "${finalTask.title}"`, null, finalTask.id, now);
+    }
     recordEvent(h.db, "approval", actor, `${actor} approved go-live${onBehalf(actor, approver)}`, note, project.id, now);
   });
   h.log("system", `${actor} approved go-live for ${spLabel(h)}: the building is now active`, note, project.id);
@@ -1097,7 +1125,7 @@ function qaTasksOpen(db: Db): number {
   const rows = db.all<{ group_name: string; status: string }>(
     `SELECT group_name, status FROM onboarding_tasks WHERE section_key = 'readiness_closeout'`,
   );
-  const qa = rows.filter((r) => r.group_name.trim().toLowerCase() === QA_GROUP.toLowerCase());
+  const qa = rows.filter((r) => isQaGroup(r.group_name));
   // A template without that group: the whole Readiness & closeout section must be finished instead.
   return (qa.length > 0 ? qa : rows).filter((r) => r.status === "open").length;
 }

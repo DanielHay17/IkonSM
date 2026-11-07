@@ -4,10 +4,20 @@
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import type { HandoverInvite, OnboardingProjectDetail, PortalUploadResult } from "../shared/onboarding";
+import { FINAL_APPROVAL_TASK_KEY } from "../worker/agents/onboarding";
 import { ONBOARDING_TEMPLATE } from "../worker/seed/onboarding-template";
 import { call, callJson, type CallOptions } from "./helpers";
 
 export const TEMPLATE_TASKS = ONBOARDING_TEMPLATE.sections.reduce((n, s) => n + s.tasks.length, 0);
+/** Tasks that hold up go-live: all but the closeout ("Completion & quality assurance") tasks and the final-approval task. */
+export const GO_LIVE_TASKS = ONBOARDING_TEMPLATE.sections.reduce(
+  (n, s) =>
+    n +
+    s.tasks.filter(
+      (t) => t.key !== FINAL_APPROVAL_TASK_KEY && !(s.key === "readiness_closeout" && t.group.toLowerCase() === "completion & quality assurance"),
+    ).length,
+  0,
+);
 export const TEMPLATE_ITEMS = ONBOARDING_TEMPLATE.handoverItems.length;
 export const TEMPLATE_CHECKS = ONBOARDING_TEMPLATE.goLiveChecks.length;
 
