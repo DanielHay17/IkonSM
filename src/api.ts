@@ -317,3 +317,101 @@ export const api = {
   addMemory: (id: string, text: string) => post<MemoryNote>(`${prop(id)}/memory`, { text }),
   deleteMemory: (id: string, memoryId: string) => del<{ ok: true }>(`${prop(id)}/memory/${seg(memoryId)}`),
 };
+
+// ---------------------------------------------------------------------------
+// The outgoing manager's handover portal (public: the token in the path is the credential)
+// ---------------------------------------------------------------------------
+// Separate from `api` on purpose: no session cookie is sent or needed, and a failure never calls the
+// staff sign-out handler. The browser adds the same-origin Origin header the portal's mutations require.
+// Contract types are imported inline, so this block never collides with the import list at the top.
+
+/** The multipart fields of a portal upload besides the file (see shared/portal-upload.ts uploadFields). */
+export interface PortalUploadFields {
+  /** The path inside the zip or folder; the server matches on it. */
+  relativePath: string | null;
+  /** A requested item's id, "none" for an extra file, or "" to let the server match. */
+  itemId: string;
+  folder: string | null;
+}
+
+const PORTAL_OFFLINE = "Couldn't reach Ikon. Check your internet connection and try again.";
+
+const portalBase = (token: string) => `/api/portal/${seg(token)}`;
+
+function portalFailure(status: number, payload: unknown): string {
+  if (payload && typeof payload === "object" && "error" in payload) {
+    const error = (payload as { error: unknown }).error;
+    if (typeof error === "string" && error) return error;
+  }
+  if (status === 413) return "That file is too large to upload.";
+  if (status === 429) return "Too many requests. Please wait a minute and try again.";
+  if (status >= 500) return "Ikon's server hit an error. Please try again in a moment.";
+  return `Request failed (${status})`;
+}
+
+async function portalRequest<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const init: RequestInit = { method, credentials: "omit", cache: "no-store", headers };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+  let res: Response;
+  try {
+    res = await fetch(path, init);
+  } catch {
+    throw new ApiError(0, PORTAL_OFFLINE);
+  }
+  const payload = await readPayload(res);
+  if (!res.ok) throw new ApiError(res.status, portalFailure(res.status, payload));
+  return payload as T;
+}
+
+/** One multipart upload with progress (XMLHttpRequest: fetch can't report upload progress yet). */
+function portalUpload(
+  token: string,
+  file: Blob,
+  fileName: string,
+  fields: PortalUploadFields,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<import("../shared/onboarding").PortalUploadResult> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.set("file", file, fileName);
+    if (fields.relativePath) form.set("relativePath", fields.relativePath);
+    form.set("itemId", fields.itemId);
+    if (fields.folder) form.set("folder", fields.folder);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${portalBase(token)}/upload`);
+    xhr.setRequestHeader("Accept", "application/json");
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) onProgress?.(event.loaded / event.total);
+    };
+    xhr.onload = () => {
+      let payload: unknown = null;
+      try {
+        payload = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+      } catch {
+        payload = null;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(payload as import("../shared/onboarding").PortalUploadResult);
+      else reject(new ApiError(xhr.status, portalFailure(xhr.status, payload)));
+    };
+    xhr.onerror = () => reject(new ApiError(0, PORTAL_OFFLINE));
+    xhr.ontimeout = () => reject(new ApiError(408, "The upload timed out."));
+    xhr.onabort = () => reject(new ApiError(0, "The upload was cancelled."));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.send(form);
+  });
+}
+
+export const portalApi = {
+  view: (token: string) => portalRequest<import("../shared/onboarding").PortalView>("GET", portalBase(token)),
+  upload: portalUpload,
+  notApplicable: (token: string, itemId: string, note: string) =>
+    portalRequest<import("../shared/onboarding").PortalItem>("POST", `${portalBase(token)}/items/${seg(itemId)}/not-applicable`, { note }),
+  note: (token: string, itemId: string, note: string) => portalRequest<import("../shared/onboarding").PortalItem>("POST", `${portalBase(token)}/items/${seg(itemId)}/note`, { note }),
+  submit: (token: string, message: string | null) => portalRequest<import("../shared/onboarding").PortalView>("POST", `${portalBase(token)}/submit`, { message }),
+};
