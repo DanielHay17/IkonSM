@@ -31,6 +31,28 @@ import type {
   TicketStatus,
   Triage,
 } from "../shared/types";
+import type {
+  CreateInviteInput,
+  CreateProjectInput,
+  FinalApprovalInput,
+  GoLiveCheck,
+  GoLiveCheckPatch,
+  HandoverInvite,
+  HandoverItem,
+  HandoverItemPatch,
+  ManagementCompany,
+  OnboardingProject,
+  OnboardingProjectDetail,
+  OnboardingSection,
+  OnboardingSummary,
+  OnboardingTask,
+  OutgoingManagerContact,
+  SectionKey,
+  SectionPatch,
+  SectionReviewInput,
+  StaffMember,
+  TaskPatch,
+} from "../shared/onboarding";
 
 export interface ThreadDetail {
   thread: Thread;
@@ -63,11 +85,14 @@ export type ThreadFilter = ThreadStatus | "open";
 
 export class ApiError extends Error {
   readonly status: number;
+  /** The parsed error body, for routes that say more than `error` (a blocked go-live lists its blockers). */
+  readonly payload: unknown;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, payload: unknown = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.payload = payload;
   }
 }
 
@@ -119,7 +144,7 @@ async function request<T>(method: Method, path: string, body?: unknown): Promise
   const payload = await readPayload(res);
   if (!res.ok) {
     if (res.status === 401 && !AUTH_PATHS.has(path)) unauthorizedHandler?.();
-    throw new ApiError(res.status, failureMessage(res, payload));
+    throw new ApiError(res.status, failureMessage(res, payload), payload);
   }
   return payload as T;
 }
@@ -161,6 +186,55 @@ function withQuery(path: string, params: Record<string, string | number | undefi
 
 const seg = encodeURIComponent;
 const prop = (id: string) => `/api/properties/${seg(id)}`;
+
+// ---------------------------------------------------------------------------
+// Onboarding a new scheme (staff screens; docs/ONBOARDING_SPEC.md "API")
+// ---------------------------------------------------------------------------
+
+export type CompanyInput = Partial<Omit<ManagementCompany, "id" | "name" | "sample" | "createdAt">> & { name: string };
+export type OutgoingManagerInput = { companyId?: string | null; name: string; email: string; phone?: string | null };
+
+/** The reasons a go-live approval was refused (409 `{ error, blockers }`), or null for any other error. */
+export function goLiveBlockers(err: unknown): string[] | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  const payload = err.payload as { blockers?: unknown } | null;
+  return Array.isArray(payload?.blockers) ? payload.blockers.filter((b): b is string => typeof b === "string") : null;
+}
+
+const onboarding = (id: string) => `${prop(id)}/onboarding`;
+
+export const onboardingApi = {
+  // Hub-wide
+  staff: () => get<StaffMember[]>("/api/staff"),
+  list: () => get<OnboardingSummary[]>("/api/onboarding"),
+  companies: () => get<ManagementCompany[]>("/api/directory/companies"),
+  addCompany: (input: CompanyInput) => post<ManagementCompany>("/api/directory/companies", input),
+  outgoingManagers: () => get<OutgoingManagerContact[]>("/api/directory/outgoing-managers"),
+  addOutgoingManager: (input: OutgoingManagerInput) => post<OutgoingManagerContact>("/api/directory/outgoing-managers", input),
+
+  // One building's project
+  project: (id: string) => get<OnboardingProjectDetail>(onboarding(id)),
+  /** The project without its detail, or null: for the building header's "Onboarding N%" chip. */
+  summary: (id: string) => get<OnboardingProject | null>(`${onboarding(id)}/summary`),
+  create: (id: string, input: CreateProjectInput = {}) => post<OnboardingProjectDetail>(onboarding(id), input),
+  updateTask: (id: string, taskId: string, patch: TaskPatch) => post<OnboardingTask>(`${onboarding(id)}/tasks/${seg(taskId)}`, patch),
+  updateSection: (id: string, key: SectionKey, patch: SectionPatch) => post<OnboardingSection>(`${onboarding(id)}/sections/${seg(key)}`, patch),
+  reviewSection: (id: string, key: SectionKey, input: SectionReviewInput) =>
+    post<OnboardingSection>(`${onboarding(id)}/sections/${seg(key)}/review`, input),
+  updateHandoverItem: (id: string, itemId: string, patch: HandoverItemPatch) => post<HandoverItem>(`${onboarding(id)}/handover/${seg(itemId)}`, patch),
+  updateGoLiveCheck: (id: string, checkId: string, patch: GoLiveCheckPatch) => post<GoLiveCheck>(`${onboarding(id)}/golive/${seg(checkId)}`, patch),
+  /** 409 with `blockers` when go-live can't be approved yet: read them with goLiveBlockers(err). */
+  approve: (id: string, input: FinalApprovalInput = {}) => post<OnboardingProjectDetail>(`${onboarding(id)}/approve`, input),
+  closeout: (id: string) => post<OnboardingProjectDetail>(`${onboarding(id)}/closeout`),
+
+  // Handover invitations
+  createInvite: (id: string, input: CreateInviteInput) => post<HandoverInvite>(`${onboarding(id)}/invites`, input),
+  activateInvite: (id: string, inviteId: string, expiresInDays?: number) =>
+    post<{ invite: HandoverInvite; url: string }>(`${onboarding(id)}/invites/${seg(inviteId)}/activate`, expiresInDays ? { expiresInDays } : {}),
+  inviteLink: (id: string, inviteId: string) => get<{ url: string }>(`${onboarding(id)}/invites/${seg(inviteId)}/link`),
+  inviteLetter: (id: string, inviteId: string) => get<{ subject: string; text: string }>(`${onboarding(id)}/invites/${seg(inviteId)}/letter`),
+  revokeInvite: (id: string, inviteId: string) => post<HandoverInvite>(`${onboarding(id)}/invites/${seg(inviteId)}/revoke`),
+};
 
 // ---------------------------------------------------------------------------
 // Endpoints

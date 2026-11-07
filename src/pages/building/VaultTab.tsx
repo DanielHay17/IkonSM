@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { VAULT_FOLDERS, emailedBy, type DocMeta } from "../../../shared/types";
+import { handoverUploadedBy } from "../../../shared/onboarding";
 import { api } from "../../api";
 import { Badge } from "../../components/Badge";
 import { Button, IconButton, buttonClasses } from "../../components/Button";
@@ -254,7 +255,7 @@ function DocRow({ doc, onView, onDelete, showFolder }: { doc: DocMeta; onView: (
           <span className="text-xs text-muted">
             {showFolder ? `${doc.folder} · ` : ""}
             {formatBytes(doc.size)} · <span title={formatDateTime(doc.uploadedAt)}>{timeAgo(doc.uploadedAt)}</span>
-            {doc.uploadedBy && !emailedBy(doc.uploadedBy) ? ` by ${doc.uploadedBy}` : ""}
+            {doc.uploadedBy && !emailedBy(doc.uploadedBy) && !handoverUploadedBy(doc.uploadedBy) ? ` by ${doc.uploadedBy}` : ""}
           </span>
         </div>
       </div>
@@ -269,8 +270,19 @@ function DocRow({ doc, onView, onDelete, showFolder }: { doc: DocMeta; onView: (
   );
 }
 
-/** Attachments filed from inbound email: anyone can send one, so the agents never treat them as building records. */
+/**
+ * Attachments filed from inbound email, and the outgoing manager's handover uploads until staff verify them:
+ * the agents never treat these as building records.
+ */
 function EmailedBadge({ uploadedBy }: { uploadedBy: string | undefined }) {
+  const handover = handoverUploadedBy(uploadedBy);
+  if (handover) {
+    return (
+      <Badge tone="amber" icon="clock" title={`Uploaded by ${handover} through the handover link; the agents use it once Ikon verifies it in Onboarding`}>
+        From outgoing manager · awaiting verification
+      </Badge>
+    );
+  }
   const sender = emailedBy(uploadedBy);
   if (!sender) return null;
   return (

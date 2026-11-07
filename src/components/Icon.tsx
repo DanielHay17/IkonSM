@@ -206,6 +206,36 @@ const ICONS = {
   wrench: (
     <path d="M15 4.2a4.5 4.5 0 0 0-5.6 5.6L3.8 15.4a2 2 0 0 0 2.8 2.8l5.6-5.6a4.5 4.5 0 0 0 5.6-5.6l-2.6 2.6-2.6-.4-.4-2.6z" />
   ),
+  /** Onboarding: a checklist on a clipboard. */
+  clipboard: (
+    <>
+      <path d="M9 4.5H6.5a1.5 1.5 0 0 0-1.5 1.5v13.5A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H15" />
+      <rect x="9" y="3" width="6" height="3" rx="1" />
+      <path d="m8.5 12 1.5 1.5 2.5-2.5M8.5 17h7M14 12.5h1.5" />
+    </>
+  ),
+  /** Go-live. */
+  flag: (
+    <>
+      <path d="M5 21V4" />
+      <path d="M5 4.5h11.5l-2 4 2 4H5" />
+    </>
+  ),
+  /** The project map: a route between two points. */
+  route: (
+    <>
+      <circle cx="6" cy="18" r="2.5" />
+      <circle cx="18" cy="6" r="2.5" />
+      <path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5" />
+    </>
+  ),
+  /** A secure link. */
+  link: (
+    <>
+      <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
+      <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

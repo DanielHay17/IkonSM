@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { AppShell } from "./components/AppShell";
 import { ErrorState } from "./components/EmptyState";
 import { Spinner } from "./components/Spinner";
@@ -16,11 +16,26 @@ import { SessionProvider, type SessionStatus } from "./providers/SessionProvider
 import { useRoute, type Route } from "./router";
 import type { SessionInfo } from "../shared/types";
 
+// The onboarding screens load when first opened, keeping them out of the main bundle.
+const OnboardingDashboard = lazy(() => import("./pages/onboarding/OnboardingDashboard").then((m) => ({ default: m.OnboardingDashboard })));
+const OnboardingProjectPage = lazy(() => import("./pages/onboarding/ProjectPage").then((m) => ({ default: m.ProjectPage })));
+const OnboardingDirectoryPage = lazy(() => import("./pages/onboarding/Directory").then((m) => ({ default: m.DirectoryPage })));
+
+function ScreenLoading() {
+  return (
+    <p className="flex items-center gap-3 py-10 text-sm text-muted">
+      <Spinner className="size-5 text-accent" label={null} />
+      Loading…
+    </p>
+  );
+}
+
 const APP_TITLE = "IKON SM Command Hub";
 const PAGE_TITLES: Partial<Record<Route["name"], string>> = {
   portfolio: "Portfolio",
   approvals: "Approvals",
   "chief-of-staff": "Chief of Staff",
+  onboarding: "Onboarding",
   "not-found": "Not found",
 };
 
@@ -34,6 +49,27 @@ function Screen({ route }: { route: Route }) {
       return <ChiefOfStaffPage />;
     case "building":
       return <BuildingPage key={route.propertyId} propertyId={route.propertyId} tab={route.tab} threadId={route.threadId} />;
+    case "onboarding":
+      return (
+        <Suspense fallback={<ScreenLoading />}>
+          <OnboardingDashboard />
+        </Suspense>
+      );
+    case "onboarding-project":
+      return (
+        <Suspense fallback={<ScreenLoading />}>
+          <OnboardingProjectPage key={route.propertyId} propertyId={route.propertyId} tab={route.tab} />
+        </Suspense>
+      );
+    case "onboarding-directory":
+      return (
+        <Suspense fallback={<ScreenLoading />}>
+          <OnboardingDirectoryPage directory={route.directory} />
+        </Suspense>
+      );
+    case "portal":
+      // The outgoing manager's portal is public: it is rendered outside the session gate (portal UI).
+      return null;
     case "not-found":
       return <NotFoundPage path={route.path} />;
   }
@@ -42,7 +78,8 @@ function Screen({ route }: { route: Route }) {
 function Hub() {
   const route = useRoute();
   const routeName = route.name;
-  const pageKey = route.name === "building" ? `building:${route.propertyId}` : route.name;
+  const pageKey =
+    route.name === "building" ? `building:${route.propertyId}` : route.name === "onboarding-project" ? `onboarding:${route.propertyId}` : route.name;
   // Back from the Microsoft 365 sign-in (?onedrive=connected or ?onedrive=error).
   useOneDriveReturn();
 

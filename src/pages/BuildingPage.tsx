@@ -26,6 +26,7 @@ import { ContactsTab } from "./building/ContactsTab";
 import { InboxTab } from "./building/InboxTab";
 import { BoardSkeleton } from "./building/BoardSkeleton";
 import { VaultTab } from "./building/VaultTab";
+import { OnboardingChip } from "./onboarding/OnboardingChip";
 
 // The board brings the drag-and-drop library: load it only when the tab opens.
 const WorkOrdersTab = lazy(() => import("./building/WorkOrdersTab").then((m) => ({ default: m.WorkOrdersTab })));
@@ -38,7 +39,7 @@ function BuildingHeader({
   onSimulate,
 }: {
   profile: PropertyProfile;
-  context: Pick<BuildingContextValue, "aiOnline" | "ai" | "liveMode" | "live">;
+  context: Pick<BuildingContextValue, "aiOnline" | "ai" | "liveMode" | "live" | "refreshKey">;
   onSimulate: () => void;
 }) {
   // One compact card on every tab: the tabs carry the counts, so there is no stat strip. On a phone
@@ -59,6 +60,7 @@ function BuildingHeader({
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
             <h1 className="heading-display text-[26px] leading-[1.05] text-ink sm:text-[32px]">SP {profile.spNumber}</h1>
             <PropertyStatusPill status={profile.status} />
+            <OnboardingChip propertyId={profile.id} refreshKey={context.refreshKey} />
             <AiStatusPill online={context.aiOnline} ai={context.ai} />
             <span className="hidden sm:contents">
               <LiveModeIndicator mode={context.liveMode} />

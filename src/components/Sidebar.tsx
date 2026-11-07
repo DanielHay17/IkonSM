@@ -139,6 +139,12 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               active={route.name === "approvals"}
               trailing={<CountBubble count={pendingApprovals} tone="inverse" label="pending" />}
             />
+            <NavItem
+              href={paths.onboarding()}
+              icon="clipboard"
+              label="Onboarding"
+              active={route.name === "onboarding" || route.name === "onboarding-project" || route.name === "onboarding-directory"}
+            />
             <NavItem href={paths.chiefOfStaff()} icon="sparkles" label="Chief of Staff" active={route.name === "chief-of-staff"} />
           </div>
 
