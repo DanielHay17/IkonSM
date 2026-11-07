@@ -30,6 +30,11 @@ const KIND_LABEL: Record<Approval["kind"], string> = {
   dispatch_contractor: "Contractor dispatch",
 };
 
+/** An email with no thread starts a conversation (such as the onboarding handover letter): it is not a reply. */
+function kindLabel(approval: Approval): string {
+  return approval.kind === "send_email" && !approval.threadId ? "New email" : KIND_LABEL[approval.kind];
+}
+
 /** A pending reply replaced by a newer draft is recorded as "rejected" with this result. */
 function isSuperseded(approval: Approval): boolean {
   return approval.status === "rejected" && approval.decidedBy === "agent" && /^Superseded/.test(approval.result ?? "");
@@ -143,7 +148,7 @@ export function ApprovalCard({ approval, onDecided, context }: ApprovalCardProps
           <h3 className="text-[15px] leading-snug font-semibold text-ink">{approval.title}</h3>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             <Badge tone={approval.kind === "dispatch_contractor" ? "charcoal" : "accent"} icon={approval.kind === "dispatch_contractor" ? "wrench" : "mail"}>
-              {KIND_LABEL[approval.kind]}
+              {kindLabel(approval)}
             </Badge>
             {superseded ? <Badge tone="neutral">Replaced</Badge> : !pending ? <ApprovalStatusBadge status={approval.status} /> : null}
             <span className="text-xs text-muted" title={formatDateTime(approval.createdAt)}>

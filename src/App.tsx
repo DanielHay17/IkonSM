@@ -14,7 +14,7 @@ import { PortfolioPage } from "./pages/PortfolioPage";
 import { PortalRoute, portalTokenFromPath } from "./pages/portal/PortalRoute";
 import { PortfolioProvider } from "./providers/PortfolioProvider";
 import { SessionProvider, type SessionStatus } from "./providers/SessionProvider";
-import { useRoute, type Route } from "./router";
+import { useLocationPath, useRoute, type Route } from "./router";
 import type { SessionInfo } from "../shared/types";
 
 // The onboarding screens load when first opened, keeping them out of the main bundle.
@@ -69,8 +69,9 @@ function Screen({ route }: { route: Route }) {
         </Suspense>
       );
     case "portal":
-      // The outgoing manager's portal is public: it is rendered outside the session gate (portal UI).
-      return null;
+      // The outgoing manager's portal is public: App renders it outside the session gate and the hub shell.
+      // Only an odd spelling of the path (such as a doubled slash) gets here.
+      return <NotFoundPage path={window.location.pathname} />;
     case "not-found":
       return <NotFoundPage path={route.path} />;
   }
@@ -125,7 +126,8 @@ function SessionGate(state: SessionStatus, controls: { retry: () => void; setSes
 
 export function App() {
   // The outgoing manager's handover portal (/handover/:token) is public: no session gate, no hub shell.
-  const portalToken = portalTokenFromPath(window.location.pathname);
+  // Read through the router so an in-app navigation to a portal path switches over too.
+  const portalToken = portalTokenFromPath(useLocationPath());
   if (portalToken !== null) return <PortalRoute token={portalToken} />;
   return (
     <ToastProvider>
