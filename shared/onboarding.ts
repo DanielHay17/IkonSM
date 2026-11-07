@@ -406,6 +406,12 @@ export interface PortalItem {
   supplierNote: string | null;
   /** Only when Ikon rejected a document: what to supply instead. */
   reviewNote: string | null;
+  /**
+   * The words the server matches uploads on (this project's checklist). The portal builds its
+   * HandoverMatchTarget[] from the items ({ id, key, title, folder, keywords }) so its suggestions agree
+   * with the server's auto-match.
+   */
+  keywords: string[];
 }
 
 export interface PortalView {

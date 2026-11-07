@@ -72,7 +72,9 @@ describe("portal access", () => {
     expect(view.items).toHaveLength(TEMPLATE_ITEMS);
     expect(view.items.map((i) => i.id)).toEqual(detail.handoverItems.map((i) => i.id));
     for (const item of view.items) {
-      expect(Object.keys(item).sort()).toEqual(["detail", "files", "folder", "id", "key", "required", "reviewNote", "status", "supplierNote", "title"]);
+      expect(Object.keys(item).sort()).toEqual(["detail", "files", "folder", "id", "key", "keywords", "required", "reviewNote", "status", "supplierNote", "title"]);
+      // The project's matching words, so the portal can suggest exactly what the server would auto-match.
+      expect(item.keywords).toEqual(ONBOARDING_TEMPLATE.handoverItems.find((t) => t.key === item.key)!.keywords);
     }
     expect(view.progress).toEqual({ total: TEMPLATE_ITEMS, supplied: 0, verified: 0, notApplicable: 0, outstanding: TEMPLATE_ITEMS });
 
@@ -224,14 +226,10 @@ describe("portal uploads", () => {
     const cookie = await loginAndSeed("Matcher");
     const id = "sp-13183";
     const { token, detail } = await openHandover(cookie, id);
-    // Match exactly as the server does: the project's items with the template's keywords.
-    const targets = detail.handoverItems.map((i) => ({
-      id: i.id,
-      key: i.key,
-      title: i.title,
-      folder: i.folder,
-      keywords: ONBOARDING_TEMPLATE.handoverItems.find((t) => t.key === i.key)!.keywords,
-    }));
+    // Match exactly as the portal page does: targets built from the PortalView's items and their keywords.
+    const portalView = await portalJson<PortalView>(token);
+    const targets = portalView.items.map((i) => ({ id: i.id, key: i.key, title: i.title, folder: i.folder, keywords: i.keywords }));
+    expect(targets.map((t) => t.id)).toEqual(detail.handoverItems.map((i) => i.id));
     const template = ONBOARDING_TEMPLATE.handoverItems[1] ?? ONBOARDING_TEMPLATE.handoverItems[0]!;
     const path = `Shared Documents/SP13183/${template.folder}/${template.keywords[0]} 2026.txt`;
     const expected = matchHandoverFile(path, targets, "07 Correspondence");

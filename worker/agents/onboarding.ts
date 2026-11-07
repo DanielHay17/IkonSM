@@ -1446,6 +1446,7 @@ function portalItem(r: ItemRow, files: FileRow[]): PortalItem {
     files: files.filter((f) => f.item_id === r.id).map((f) => ({ name: f.name, size: f.size, uploadedAt: f.uploaded_at })),
     supplierNote: r.supplier_note,
     reviewNote: status === "rejected" ? r.review_note : null,
+    keywords: parseList(r.keywords),
   };
 }
 
