@@ -5,6 +5,7 @@ interface __BaseEnv_Env {
 	VAULT: R2Bucket;
 	EMAIL: SendEmail;
 	LOGIN_LIMITER: RateLimit;
+	PORTAL_LIMITER: RateLimit;
 	AI: Ai;
 	APP_NAME: string;
 	COMPANY_NAME: string;

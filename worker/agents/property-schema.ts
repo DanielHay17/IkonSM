@@ -205,6 +205,143 @@ export const SCHEMA: readonly string[] = [
     message TEXT NOT NULL,
     created_at TEXT NOT NULL
   )`,
+
+  // -------------------------------------------------------------------------
+  // Onboarding (worker/agents/onboarding.ts; docs/ONBOARDING_SPEC.md). A building has at most one project,
+  // so the other onboarding tables hold that project's rows only.
+  // -------------------------------------------------------------------------
+
+  `CREATE TABLE IF NOT EXISTS onboarding_project (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    target_go_live_date TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    template_version TEXT NOT NULL,
+    demo INTEGER NOT NULL DEFAULT 0,
+    approved_by TEXT,
+    approved_at TEXT,
+    approval_note TEXT,
+    closed_by TEXT,
+    closed_at TEXT
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS onboarding_sections (
+    key TEXT PRIMARY KEY,
+    position INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    groups TEXT NOT NULL DEFAULT '[]',
+    owner_id TEXT,
+    approver_id TEXT,
+    review TEXT NOT NULL DEFAULT 'not_reviewed',
+    reviewed_by TEXT,
+    reviewed_at TEXT,
+    review_note TEXT
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS onboarding_tasks (
+    id TEXT PRIMARY KEY,
+    position INTEGER NOT NULL,
+    section_key TEXT NOT NULL,
+    task_key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    owner_id TEXT,
+    due_date TEXT,
+    note TEXT,
+    completed_by TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_onboarding_tasks_section ON onboarding_tasks (section_key, position)`,
+
+  `CREATE TABLE IF NOT EXISTS handover_items (
+    id TEXT PRIMARY KEY,
+    position INTEGER NOT NULL,
+    item_key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    detail TEXT NOT NULL,
+    folder TEXT NOT NULL,
+    required INTEGER NOT NULL DEFAULT 1,
+    keywords TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'awaiting_supply',
+    supplier_note TEXT,
+    review_note TEXT,
+    verified_by TEXT,
+    verified_at TEXT,
+    updated_at TEXT NOT NULL
+  )`,
+
+  // One row per uploaded file; item_id is null for extra files that match no requested item.
+  // uploaded_by is the outgoing manager as "Name (Company)" (the docs row carries the handover: prefix until verified).
+  `CREATE TABLE IF NOT EXISTS handover_files (
+    doc_id TEXT PRIMARY KEY,
+    item_id TEXT,
+    invite_id TEXT,
+    name TEXT NOT NULL,
+    folder TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    source_path TEXT,
+    uploaded_by TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_handover_files_item ON handover_files (item_id)`,
+
+  `CREATE TABLE IF NOT EXISTS golive_checks (
+    id TEXT PRIMARY KEY,
+    position INTEGER NOT NULL,
+    check_key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    checked_by TEXT,
+    checked_at TEXT,
+    note TEXT
+  )`,
+
+  // token_hash: hex SHA-256 of the full portal token; token_enc: the token sealed with AES-GCM (key from SESSION_SECRET).
+  `CREATE TABLE IF NOT EXISTS handover_invites (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    incoming_manager_id TEXT NOT NULL,
+    outgoing_company TEXT NOT NULL,
+    outgoing_name TEXT NOT NULL,
+    outgoing_email TEXT NOT NULL,
+    outgoing_phone TEXT,
+    handover_date TEXT NOT NULL,
+    records_due_date TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    activated_at TEXT,
+    expires_at TEXT,
+    revoked_at TEXT,
+    submitted_at TEXT,
+    last_access_at TEXT,
+    access_count INTEGER NOT NULL DEFAULT 0,
+    last_visit_at TEXT,
+    approval_id TEXT,
+    token_hash TEXT,
+    token_enc TEXT,
+    files_count INTEGER NOT NULL DEFAULT 0,
+    bytes_total INTEGER NOT NULL DEFAULT 0
+  )`,
+
+  // ref links an event to the row it is about (task, item, check, section, invite or document id).
+  `CREATE TABLE IF NOT EXISTS onboarding_events (
+    id TEXT PRIMARY KEY,
+    at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    detail TEXT,
+    ref TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_onboarding_events_at ON onboarding_events (at)`,
 ];
 
 // ---------------------------------------------------------------------------

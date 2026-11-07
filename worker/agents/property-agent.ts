@@ -21,6 +21,27 @@
 import { Agent, type Connection } from "agents";
 import type { AgentEmail } from "agents/email";
 import { EMAILED_UPLOAD_PREFIX } from "../../shared/types";
+import { HANDOVER_UPLOAD_PREFIX } from "../../shared/onboarding";
+import type {
+  CreateInviteInput,
+  CreateProjectInput,
+  FinalApprovalInput,
+  GoLiveCheck,
+  GoLiveCheckPatch,
+  HandoverInvite,
+  HandoverItem,
+  HandoverItemPatch,
+  OnboardingProject,
+  OnboardingProjectDetail,
+  OnboardingSection,
+  OnboardingTask,
+  PortalItem,
+  PortalUploadResult,
+  PortalView,
+  SectionPatch,
+  SectionReviewInput,
+  TaskPatch as OnboardingTaskPatch,
+} from "../../shared/onboarding";
 import type {
   ActivityEvent,
   ActivityKind,
@@ -51,6 +72,7 @@ import { engineLabel } from "../../shared/engines";
 import { AgentRunError, runAgent, type ToolHost } from "../ai/agent-loop";
 import { aiInfo, aiOnline, aiProvider, offlineReason, perthDate, perthShort } from "../ai/client";
 import { readAiChoice, withAiChoice } from "../ai/switch";
+import { sessionSecret } from "../auth";
 import type { DemoItem } from "../seed/demo";
 import { draftReply as composeDraft } from "../ai/drafting";
 import { propertySystemPrompt } from "../ai/prompts";
@@ -141,6 +163,7 @@ import {
   type ThreadRow,
   type TicketRow,
 } from "./property-schema";
+import * as ob from "./onboarding";
 
 const CORRESPONDENCE_FOLDER = "07 Correspondence";
 const THREAD_WINDOW_MS = 14 * DAY_MS;
@@ -168,6 +191,8 @@ export type PropertyStats = {
   profile: PropertyProfile | null;
   counts: PropertyCounts;
   lastActivityAt: string | null;
+  /** When the building's onboarding project last changed (task edits are not in the activity log); null without one. */
+  onboardingUpdatedAt: string | null;
   p1Threads: Thread[];
   pendingApprovals: Approval[];
 };
@@ -279,6 +304,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       profile: this.storedProfile(),
       counts: this.computeCounts(),
       lastActivityAt: this.sql<{ at: string | null }>`SELECT MAX(at) AS at FROM activity`[0]?.at ?? null,
+      onboardingUpdatedAt: this.sql<{ at: string | null }>`SELECT MAX(updated_at) AS at FROM onboarding_project`[0]?.at ?? null,
       p1Threads: this.openP1Threads(),
       pendingApprovals: this.selectApprovals("WHERE status = 'pending' ORDER BY created_at DESC"),
     };
@@ -636,8 +662,8 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
   }
 
   /**
-   * Document search. Emailed attachments are untrusted, so they are left out unless `includeEmailed`
-   * is set (only the vault search screen, which labels them); the agents never see them as records.
+   * Document search. Emailed attachments and unverified handover uploads are untrusted, so they are left out
+   * unless `includeEmailed` is set (only the Files screen, which labels them); the agents never see them as records.
    */
   async searchDocs(query: string, limit = 8, opts: { includeEmailed?: boolean } = {}): Promise<SearchHit[]> {
     return this.searchIndex(query, limit, { includeEmailed: opts?.includeEmailed === true, preferDefinitions: true });
@@ -745,6 +771,134 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       this.touch();
       return { docs, contacts };
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Onboarding a new scheme (logic in ./onboarding.ts). Results carry an HTTP-style status on failure,
+  // because errors cross Durable Object RPC as bare messages.
+  // -------------------------------------------------------------------------
+
+  async getOnboarding(): Promise<OnboardingProjectDetail | null> {
+    return ob.readDetail(this.onboardingHost());
+  }
+
+  /** The project without its detail (the dashboard and the Chief of Staff), or null. */
+  async getOnboardingSummary(): Promise<OnboardingProject | null> {
+    return ob.readProject(this.onboardingHost());
+  }
+
+  async createOnboarding(input: CreateProjectInput, actor: string): Promise<ob.OnboardingResult<OnboardingProjectDetail>> {
+    return this.onboardingChange((h) => ob.createProject(h, input, actor));
+  }
+
+  async updateOnboardingTask(taskId: string, patch: OnboardingTaskPatch, actor: string): Promise<ob.OnboardingResult<OnboardingTask>> {
+    return this.onboardingChange((h) => ob.patchTask(h, taskId, patch, actor));
+  }
+
+  async updateOnboardingSection(key: string, patch: SectionPatch, actor: string): Promise<ob.OnboardingResult<OnboardingSection>> {
+    return this.onboardingChange((h) => ob.patchSection(h, key, patch, actor));
+  }
+
+  async reviewOnboardingSection(key: string, input: SectionReviewInput, actor: string): Promise<ob.OnboardingResult<OnboardingSection>> {
+    return this.onboardingChange((h) => ob.reviewSection(h, key, input, actor));
+  }
+
+  async updateHandoverItem(itemId: string, patch: HandoverItemPatch, actor: string): Promise<ob.OnboardingResult<HandoverItem>> {
+    return this.onboardingChange((h) => ob.patchHandoverItem(h, itemId, patch, actor));
+  }
+
+  async updateGoLiveCheck(checkId: string, patch: GoLiveCheckPatch, actor: string): Promise<ob.OnboardingResult<GoLiveCheck>> {
+    return this.onboardingChange((h) => ob.patchGoLiveCheck(h, checkId, patch, actor));
+  }
+
+  async approveOnboardingGoLive(input: FinalApprovalInput, actor: string): Promise<ob.OnboardingResult<OnboardingProjectDetail>> {
+    return this.onboardingChange((h) => ob.approveGoLive(h, input, actor));
+  }
+
+  async closeOutOnboarding(actor: string): Promise<ob.OnboardingResult<OnboardingProjectDetail>> {
+    return this.onboardingChange((h) => ob.closeOut(h, actor));
+  }
+
+  async createHandoverInvite(input: CreateInviteInput, actor: string): Promise<ob.OnboardingResult<HandoverInvite>> {
+    return this.onboardingChange((h) => ob.createInvite(h, input, actor));
+  }
+
+  /** `baseUrl` is the hub's public origin; the link is `<baseUrl>/handover/<token>`. */
+  async activateHandoverInvite(
+    inviteId: string,
+    opts: { expiresInDays?: number; baseUrl: string },
+    actor: string,
+  ): Promise<ob.OnboardingResult<{ invite: HandoverInvite; url: string }>> {
+    return this.onboardingChange((h) => ob.activateInvite(h, inviteId, opts, actor));
+  }
+
+  async handoverInviteLink(inviteId: string, baseUrl: string): Promise<ob.OnboardingResult<{ url: string }>> {
+    return ob.attempt(() => ob.inviteLink(this.onboardingHost(), inviteId, baseUrl));
+  }
+
+  async handoverInviteLetter(inviteId: string, baseUrl: string): Promise<ob.OnboardingResult<{ subject: string; text: string }>> {
+    return ob.attempt(() => ob.inviteLetter(this.onboardingHost(), inviteId, baseUrl));
+  }
+
+  async revokeHandoverInvite(inviteId: string, actor: string): Promise<ob.OnboardingResult<HandoverInvite>> {
+    return this.onboardingChange((h) => ob.revokeInvite(h, inviteId, actor));
+  }
+
+  // The outgoing manager's portal: the token is the credential and is checked on every call.
+
+  async portalView(token: string): Promise<ob.OnboardingResult<PortalView>> {
+    return this.onboardingChange((h) => ob.portalView(h, token));
+  }
+
+  async portalPlanUpload(token: string, req: ob.UploadRequest): Promise<ob.OnboardingResult<ob.UploadPlan>> {
+    return ob.attempt(() => ob.planUpload(this.onboardingHost(), token, req));
+  }
+
+  async portalCommitUpload(
+    token: string,
+    plan: ob.UploadPlan,
+    doc: { mimeType: string; r2Key: string },
+    text: string | null,
+    extractionFailed: boolean,
+  ): Promise<ob.OnboardingResult<PortalUploadResult & { docId: string }>> {
+    return this.onboardingChange((h) => ob.commitUpload(h, token, plan, doc, text, extractionFailed));
+  }
+
+  async portalNotApplicable(token: string, itemId: string, note: string): Promise<ob.OnboardingResult<PortalItem>> {
+    return this.onboardingChange((h) => ob.portalNotApplicable(h, token, itemId, note));
+  }
+
+  async portalNote(token: string, itemId: string, note: string): Promise<ob.OnboardingResult<PortalItem>> {
+    return this.onboardingChange((h) => ob.portalNote(h, token, itemId, note));
+  }
+
+  async portalSubmit(token: string, message: string | null): Promise<ob.OnboardingResult<PortalView>> {
+    return this.onboardingChange((h) => ob.portalSubmit(h, token, message));
+  }
+
+  // Demo scenario (worker/seed/onboarding-demo.ts) and the agents' view of the onboarding.
+
+  async startOnboardingDemo(spec: ob.DemoStart, actor: string, baseUrl: string): Promise<ob.OnboardingResult<ob.DemoStarted>> {
+    return this.onboardingChange((h) => ob.startDemo(h, spec, actor, baseUrl));
+  }
+
+  async finishOnboardingDemo(progress: ob.DemoProgress, actor: string): Promise<ob.OnboardingResult<OnboardingProject | null>> {
+    return this.onboardingChange((h) => {
+      ob.applyDemoProgress(h, progress, actor);
+      return ob.readProject(h);
+    });
+  }
+
+  /** Removes this building's demo project (never a real one); the caller deletes the returned R2 objects. */
+  async clearOnboardingDemo(actor: string): Promise<{ removed: boolean; r2Keys: string[] }> {
+    const result = ob.clearDemoProject(this.onboardingHost(), actor);
+    if (result.removed) this.touch();
+    return result;
+  }
+
+  /** Outstanding handover documents and go-live blockers (the onboarding_status chat tool); null without a project. */
+  async onboardingStatus(): Promise<ob.OnboardingStatusReport | null> {
+    return ob.statusReport(this.onboardingHost());
   }
 
   // =========================================================================
@@ -1292,7 +1446,8 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
   /**
    * BM25 search over chunk text (weight 1), document name (5) and folder (2). Never throws.
    * Emailed attachments (uploaded_by "email:…") are excluded unless `includeEmailed`: anyone can email the
-   * building, so their text must never reach triage, drafts or chat as a building record.
+   * building, so their text must never reach triage, drafts or chat as a building record. Handover uploads
+   * from the outgoing manager ("handover:…") are treated the same way until staff verify them.
    * The snippet always comes from the chunk body (a name-only match falls back to the start of the body).
    */
   private searchIndex(query: string, limit: number, opts: SearchOptions = {}): SearchHit[] {
@@ -1308,12 +1463,13 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
           FROM doc_fts
           JOIN doc_chunks c ON c.id = doc_fts.rowid
           JOIN docs d ON d.id = c.doc_id
-          WHERE doc_fts MATCH ? AND (? = 1 OR d.uploaded_by NOT LIKE ?)
+          WHERE doc_fts MATCH ? AND (? = 1 OR (d.uploaded_by NOT LIKE ? AND d.uploaded_by NOT LIKE ?))
           ORDER BY rank
           LIMIT ?`,
         match,
         opts.includeEmailed ? 1 : 0,
         `${EMAILED_UPLOAD_PREFIX}%`,
+        `${HANDOVER_UPLOAD_PREFIX}%`,
         max * 2 * perDoc,
       );
       const phrases = opts.preferDefinitions ? queryPhrases(query) : [];
@@ -1564,9 +1720,15 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
   private offlineReply(text: string, reason: string): ChatReply {
     const hits = this.searchIndex(text, 5, { perDoc: 3, preferDefinitions: true });
     const contacts = contractorLines(text, this.contactRows("contractor"));
+    // "What are we still waiting for from the outgoing manager?": the onboarding summary comes first.
+    const onboarding = ob.ONBOARDING_QUESTION.test(text) ? ob.statusReport(this.onboardingHost()) : null;
+    const lead = onboarding ? `${reason}\n\n${ob.summaryText(onboarding)}` : reason;
     return {
-      ...offlineAnswer(reason, hits, contacts),
-      toolCalls: [{ name: "search_documents", summary: `${hits.length} result(s) for "${truncate(text, 60)}"` }],
+      ...offlineAnswer(lead, hits, contacts),
+      toolCalls: [
+        ...(onboarding ? [{ name: "onboarding_status", summary: `Onboarding: ${onboarding.project}` }] : []),
+        { name: "search_documents", summary: `${hits.length} result(s) for "${truncate(text, 60)}"` },
+      ],
     };
   }
 
@@ -1609,6 +1771,69 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       VALUES (${message.id}, ${message.role}, ${message.text}, ${message.author}, ${JSON.stringify(message.toolCalls)},
         ${JSON.stringify(message.citations)}, ${message.createdAt})`;
     return message;
+  }
+
+  // =========================================================================
+  // Private: onboarding host
+  // =========================================================================
+
+  /** Runs an onboarding mutation; on success the live state is broadcast so open screens refresh. */
+  private async onboardingChange<T>(fn: (h: ob.OnboardingHost) => T | Promise<T>): Promise<ob.OnboardingResult<T>> {
+    const result = await ob.attempt(() => fn(this.onboardingHost()));
+    if (result.ok) this.touch();
+    return result;
+  }
+
+  /** What ./onboarding.ts may use of this agent: its SQL plus a few services (log, contacts, approvals, documents). */
+  private onboardingHost(): ob.OnboardingHost {
+    const sql = this.ctx.storage.sql;
+    return {
+      db: {
+        all: <T extends Record<string, SqlStorageValue>>(query: string, ...bindings: SqlValue[]) => sql.exec<T>(query, ...bindings).toArray(),
+        run: (query: string, ...bindings: SqlValue[]) => {
+          sql.exec(query, ...bindings);
+        },
+        tx: <T>(fn: () => T) => this.ctx.storage.transactionSync(fn),
+      },
+      propertyId: this.name,
+      profile: this.profile(),
+      companyName: this.companyName(),
+      secret: sessionSecret(this.env),
+      log: (kind, summary, detail = null, ref = null) => this.logActivity(kind, summary, detail, ref),
+      contacts: () => this.contactRows(),
+      saveContact: (contact) => this.saveContact(contact),
+      deleteContact: (id) => {
+        this.sql`DELETE FROM contacts WHERE id = ${id}`;
+      },
+      createEmailApproval: (a) =>
+        this.insertApproval({
+          kind: "send_email",
+          title: a.title,
+          rationale: a.rationale,
+          draft: { to: a.to, toName: a.toName, subject: a.subject, body: a.body, inReplyTo: null, references: null },
+          citations: [],
+          threadId: null,
+          ticketId: null,
+          createdBy: a.actor,
+          engine: "template",
+          model: null,
+          provider: null,
+        }).id,
+      withdrawApproval: (id, actor, reason) => {
+        this.sql`UPDATE approvals SET status = 'rejected', decided_at = ${nowIso()}, decided_by = ${actor}, result = ${reason}
+          WHERE id = ${id} AND status = 'pending'`;
+      },
+      deleteApproval: (id) => {
+        this.sql`DELETE FROM approvals WHERE id = ${id}`;
+      },
+      indexDocument: (meta, text, extractionFailed) =>
+        this.indexDocument({ ...meta, scope: "building", sample: meta.sample === true }, text, extractionFailed),
+      removeDocument: (id) => {
+        const doc = this.findDoc(id);
+        if (doc) this.ctx.storage.transactionSync(() => this.removeDocumentRows(id));
+        return doc;
+      },
+    };
   }
 
   // =========================================================================
@@ -1718,8 +1943,11 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       ON CONFLICT(key) DO UPDATE SET value = excluded.value`;
   }
 
+  /** The stored profile, with the status set by an approved onboarding go-live (kept apart so re-seeding can't undo it). */
   private storedProfile(): PropertyProfile | null {
-    return parseJson<PropertyProfile | null>(this.getMeta("profile"), null);
+    const profile = parseJson<PropertyProfile | null>(this.getMeta("profile"), null);
+    const override = this.getMeta(ob.STATUS_OVERRIDE_KEY);
+    return profile && (override === "active" || override === "pilot" || override === "onboarding") ? { ...profile, status: override } : profile;
   }
 
   /** The stored profile, or a clearly-marked placeholder so mail that arrives before init() still works. */

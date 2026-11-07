@@ -14,6 +14,7 @@
 
 import { z } from "zod";
 import type { Citation, SearchHit, Thread, Ticket } from "../../shared/types";
+import { ONBOARDING_QUESTION } from "../agents/onboarding";
 import type { SavedDraft, ToolHost } from "./agent-loop";
 import { truncate, workersAiModel } from "./client";
 import { TriageOutput } from "./triage-schema";
@@ -325,10 +326,12 @@ export async function workersAiChat(
   opts: { system: string; userText: string; host: ToolHost; onTool?: (name: string, summary: string) => void },
 ): Promise<WorkersAiChatAnswer> {
   const query = opts.userText;
-  const [hits, threads, tickets] = await Promise.all([
+  const [hits, threads, tickets, onboarding] = await Promise.all([
     retrieve(opts.host, query),
     opts.host.listThreads({ status: "open" }).catch(() => [] as Thread[]),
     opts.host.listTickets().catch(() => [] as Ticket[]),
+    // Onboarding questions ("What are we still waiting for from the outgoing manager?") get the project's status.
+    ONBOARDING_QUESTION.test(query) && opts.host.onboardingStatus ? opts.host.onboardingStatus().catch(() => null) : Promise.resolve(null),
   ]);
   const toolCalls = [
     {
@@ -346,7 +349,17 @@ export async function workersAiChat(
   const { text, model } = await run(env, {
     messages: [
       { role: "system", content: `${opts.system}\n\n${LIGHT_MODE}` },
-      { role: "user", content: [excerptsBlock(hits), "", openItemsBlock(threads, tickets), "", `Question from staff: ${opts.userText}`].join("\n") },
+      {
+        role: "user",
+        content: [
+          excerptsBlock(hits),
+          "",
+          openItemsBlock(threads, tickets),
+          ...(onboarding ? ["", `<onboarding>\n${JSON.stringify(onboarding).replace(/</g, "\\u003c")}\n</onboarding>`] : []),
+          "",
+          `Question from staff: ${opts.userText}`,
+        ].join("\n"),
+      },
     ],
     maxTokens: 1500,
     temperature: 0.3,

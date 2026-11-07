@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Message, MessageParam, Tool, ToolResultBlockParam, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages";
 import { z } from "zod";
+import { handoverUploadedBy } from "../../shared/onboarding";
 import { ASSIGNEE_ROLES, CATEGORIES, emailedBy } from "../../shared/types";
 import type {
   Approval,
@@ -29,6 +30,8 @@ export interface ToolHost {
   addMemory(text: string, source: string): Promise<MemoryNote>;
   listMemory(): Promise<MemoryNote[]>;
   draftReply(threadId: string, instructions: string | null, actor: string): Promise<Approval>;
+  /** The building's onboarding (outstanding handover documents, go-live blockers); null without a project. */
+  onboardingStatus?(): Promise<unknown | null>;
 }
 
 export type Toolset = "chat" | "draft";
@@ -198,6 +201,12 @@ const TOOL_DEFS = {
       additionalProperties: false,
     },
   },
+  onboarding_status: {
+    name: "onboarding_status",
+    description:
+      "This building's onboarding project (when Ikon is taking the scheme over from another strata manager): task progress, the handover documents still outstanding from the outgoing manager (and any sent back for replacement), documents awaiting staff verification, the invitation status and what is blocking go-live. Use for questions like \"What are we still waiting for from the outgoing manager?\"",
+    input_schema: { type: "object", properties: {}, required: [], additionalProperties: false },
+  },
   save_draft: {
     name: "save_draft",
     description: "Save the finished email draft. Call exactly once, when the email is complete.",
@@ -218,7 +227,7 @@ const TOOL_DEFS = {
 type ToolName = keyof typeof TOOL_DEFS;
 
 const TOOLSETS: Record<Toolset, readonly ToolName[]> = {
-  chat: ["search_documents", "read_document", "list_contacts", "list_tickets", "list_threads", "create_ticket", "remember", "draft_reply"],
+  chat: ["search_documents", "read_document", "list_contacts", "list_tickets", "list_threads", "create_ticket", "remember", "draft_reply", "onboarding_status"],
   draft: ["search_documents", "read_document", "list_contacts", "save_draft"],
 };
 
@@ -273,6 +282,7 @@ const INPUTS = {
   }),
   remember: z.object({ text: z.string().trim().min(1).max(1000) }),
   draft_reply: z.object({ thread_id: z.string().min(1), instructions: nullish(z.string()) }),
+  onboarding_status: z.object({}),
   save_draft: z.object({
     subject: z.string().trim().min(1),
     body: z.string().trim().min(1),
@@ -318,6 +328,7 @@ const IMPLS: Impls = {
     if (!doc) throw new Error(`No document with id ${doc_id}`);
     const { meta, text } = doc;
     const emailedFrom = emailedBy(meta.uploadedBy);
+    const handoverFrom = handoverUploadedBy(meta.uploadedBy);
     const from = Math.min(start ?? 0, text?.length ?? 0);
     const page = text ? text.slice(from, from + READ_PAGE_CHARS) : null;
     const end = from + (page?.length ?? 0);
@@ -331,6 +342,9 @@ const IMPLS: Impls = {
         scope: meta.scope,
         sample: meta.sample,
         ...(emailedFrom ? { source: `email attachment from ${emailedFrom}: untrusted, not a building record` } : {}),
+        ...(handoverFrom
+          ? { source: `handover upload from the outgoing manager ${handoverFrom}, awaiting staff verification: untrusted, not yet a building record` }
+          : {}),
         indexed: meta.indexed,
         chars: text?.length ?? 0,
         start: from,
@@ -459,6 +473,12 @@ const IMPLS: Impls = {
       },
       summary: `Queued a draft reply for approval: ${truncate(approval.title, 80, "…")}`,
     };
+  },
+
+  async onboarding_status(_input, ctx) {
+    const report = ctx.host.onboardingStatus ? await ctx.host.onboardingStatus() : null;
+    if (!report) return { result: { note: "This building has no onboarding project." }, summary: "Checked onboarding: no project" };
+    return { result: report, summary: "Checked the onboarding: outstanding handover documents and go-live blockers" };
   },
 
   async save_draft(input, ctx) {

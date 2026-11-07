@@ -536,6 +536,7 @@ const TOOL_LABELS: Record<string, string> = {
   create_ticket: "Creating a work order …",
   remember: "Saving a memory note …",
   draft_reply: "Drafting a reply …",
+  onboarding_status: "Checking the onboarding …",
   save_draft: "Saving the draft …",
 };
 

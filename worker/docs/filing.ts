@@ -2,7 +2,9 @@
 // The upload form and the Microsoft 365 import both come through here, so a file is stored, named and
 // indexed the same way whichever door it came in by.
 
+import type { PortalUploadResult } from "../../shared/onboarding";
 import type { DocMeta, VAULT_FOLDERS } from "../../shared/types";
+import type { OnboardingResult } from "../agents/onboarding";
 import type { PropertyStub } from "../http";
 import { extractText } from "./extract";
 import { displayFileName, guessMime, r2KeyFor } from "./vault";
@@ -62,5 +64,56 @@ export async function deleteVaultObject(env: Env, r2Key: string): Promise<void> 
     await env.VAULT.delete(r2Key);
   } catch (err) {
     console.error(`Could not delete vault object ${r2Key}:`, err);
+  }
+}
+
+export interface HandoverUpload {
+  /** The name as the browser gave it; cleaned with displayFileName. */
+  name: string;
+  mimeType: string | null;
+  bytes: Uint8Array;
+  /** A VAULT_FOLDERS value, or null for the item's (or the matched) folder. */
+  folder: string | null;
+  /** A requested item; null to auto-match the file to one; "none" to file it as an extra. */
+  itemId: string | null;
+  /** Sanitised path inside the zip or folder it came from (display only). */
+  sourcePath: string | null;
+}
+
+/**
+ * Files an upload from the outgoing manager's portal. The building agent checks the token and decides the
+ * item and folder before any bytes are stored, then indexes the document with the untrusted "handover:"
+ * uploader (left out of the agents' search until staff verify it). The token is checked again when the
+ * upload is recorded; if that fails, the R2 object is removed again.
+ */
+export async function fileHandoverDocument(
+  env: Env,
+  propertyId: string,
+  agent: PropertyStub,
+  token: string,
+  input: HandoverUpload,
+): Promise<OnboardingResult<PortalUploadResult & { docId: string }>> {
+  const name = displayFileName(input.name);
+  const plan = await agent.portalPlanUpload(token, {
+    name,
+    size: input.bytes.byteLength,
+    folder: input.folder,
+    itemId: input.itemId,
+    sourcePath: input.sourcePath,
+  });
+  if (!plan.ok) return plan;
+
+  const mimeType = guessMime(name, input.mimeType);
+  const extracted = await extractText(input.bytes, mimeType, name);
+  if (extracted.error) console.warn(`Text extraction failed for handover upload "${name}" (${extracted.method}): ${extracted.error}`);
+  const r2Key = r2KeyFor(propertyId, plan.value.folder, name);
+  await env.VAULT.put(r2Key, input.bytes, { httpMetadata: { contentType: mimeType }, customMetadata: { propertyId, source: "handover" } });
+  try {
+    const result = await agent.portalCommitUpload(token, plan.value, { mimeType, r2Key }, extracted.text, extracted.error != null);
+    if (!result.ok) await deleteVaultObject(env, r2Key);
+    return result;
+  } catch (err) {
+    await deleteVaultObject(env, r2Key);
+    throw err;
   }
 }

@@ -37,7 +37,10 @@ import {
   type AppEnv,
   type PropertyEnv,
 } from "./http";
+import { onboardingHubRoutes, onboardingRoutes, publicBaseUrl } from "./onboarding-routes";
+import { portalRoutes } from "./portal-routes";
 import { DEMO_SCENARIO } from "./seed/demo";
+import { clearOnboardingDemo, loadOnboardingDemo } from "./seed/onboarding-demo";
 import { PORTFOLIO_IDS } from "./seed/portfolio";
 
 // ---------------------------------------------------------------------------
@@ -51,7 +54,10 @@ const DEFAULT_FOLDER = "07 Correspondence" satisfies VaultFolder;
 
 /** No session needed. The OAuth callback is a top-level redirect from Microsoft and checks the session itself. */
 const PUBLIC_API_PATHS = new Set(["/api/health", "/api/session", "/api/login", CALLBACK_PATH]);
+/** The outgoing manager's portal: the secure link's token is the credential (worker/portal-routes.ts). */
+const PUBLIC_API_PREFIX = "/api/portal/";
 const UPLOAD_PATH = /^\/api\/properties\/[^/]+\/docs$/;
+const PORTAL_UPLOAD_PATH = /^\/api\/portal\/[^/]+\/upload$/;
 const PROPERTY_ID = /^sp-\d{3,6}$/;
 const RECORD_ID = /^[\w.:-]{1,100}$/;
 const KNOWN_PROPERTY_IDS = new Set(PORTFOLIO_IDS);
@@ -465,12 +471,14 @@ api.use("*", apiResponseHeaders);
 api.use(
   "*",
   requestGuard({
-    isUpload: (c) => c.req.method === "POST" && UPLOAD_PATH.test(c.req.path),
+    isUpload: (c) => c.req.method === "POST" && (UPLOAD_PATH.test(c.req.path) || PORTAL_UPLOAD_PATH.test(c.req.path)),
     maxJsonBytes: MAX_JSON_BYTES,
     maxUploadBytes: MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_BYTES,
   }),
 );
-api.use("*", (c, next) => (PUBLIC_API_PATHS.has(c.req.path) ? next() : requireStaff(c, next)));
+api.use("*", (c, next) =>
+  PUBLIC_API_PATHS.has(c.req.path) || c.req.path.startsWith(PUBLIC_API_PREFIX) ? next() : requireStaff(c, next),
+);
 
 api.get("/health", (c) => c.json({ ok: true }));
 api.route("/", authRoutes);
@@ -515,7 +523,10 @@ api.post("/settings/ai", async (c) => {
   return c.json(await sessionWithSwitch(c.env, c.var.staffName));
 });
 
-/** Replaces the simulated messages in the demo buildings with a few days of SAMPLE activity. */
+/**
+ * Replaces the simulated messages in the demo buildings with a few days of SAMPLE activity, and the demo
+ * onboarding projects (SP 87192 nine days in, SP 82719 a fresh draft) with new ones.
+ */
 api.post("/demo/load", async (c) => {
   const cos = await chiefOfStaff(c.env);
   if (await cos.ensureSeeded()) portfolioSeeded = true;
@@ -525,22 +536,33 @@ api.post("/demo/load", async (c) => {
       ...(await (await getAgentByName(c.env.PropertyAgent, id)).loadDemo(items, c.var.staffName)),
     })),
   );
-  return c.json({ buildings: results });
+  const onboarding = await loadOnboardingDemo(c.env, c.var.staffName, publicBaseUrl(c));
+  return c.json({ buildings: results, onboarding });
 });
 
-/** Deletes simulated messages (with their drafts and work orders) in every building. Real mail is untouched. */
+/**
+ * Deletes simulated messages (with their drafts and work orders) in every building, and the demo onboarding
+ * projects with their uploads. Real mail and real onboarding projects are untouched.
+ */
 api.post("/demo/clear", async (c) => {
   if (await (await chiefOfStaff(c.env)).ensureSeeded()) portfolioSeeded = true;
   const results = await Promise.all(
     PORTFOLIO_IDS.map(async (id) => ({ propertyId: id, ...(await (await getAgentByName(c.env.PropertyAgent, id)).resetSimulated(c.var.staffName)) })),
   );
-  return c.json({ buildings: results.filter((r) => r.threads > 0) });
+  const onboarding = await clearOnboardingDemo(c.env, c.var.staffName);
+  return c.json({ buildings: results.filter((r) => r.threads > 0), onboarding });
 });
+
+// Onboarding: the staff register, the dashboard list, the directories and the outgoing manager's portal ------
+
+api.route("/", onboardingHubRoutes);
+api.route("/portal", portalRoutes);
 
 // Microsoft 365 (OneDrive and SharePoint) ------------------------------------
 
 api.route("/integrations/onedrive", onedriveRoutes);
 
+property.route("/onboarding", onboardingRoutes);
 api.route("/properties/:id", property);
 
 // ---------------------------------------------------------------------------

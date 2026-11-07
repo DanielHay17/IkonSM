@@ -1,4 +1,5 @@
 import { engineLabel } from "../../shared/engines";
+import { handoverUploadedBy } from "../../shared/onboarding";
 import { CATEGORY_LABELS, emailedBy } from "../../shared/types";
 import type {
   AiProviderKind,
@@ -231,7 +232,7 @@ async function unverifiedPhones(body: string, host: ToolHost, citations: Citatio
   const sources: string[] = [];
   for (const citation of citations) {
     const doc = await host.getDocument(citation.docId).catch(() => null);
-    if (!doc || emailedBy(doc.meta.uploadedBy)) continue;
+    if (!doc || emailedBy(doc.meta.uploadedBy) || handoverUploadedBy(doc.meta.uploadedBy)) continue;
     sources.push(citation.snippet);
     if (doc.text) sources.push(doc.text);
   }
@@ -421,9 +422,13 @@ function matchingLine(text: string, patterns: RegExp[]): string | null {
   return null;
 }
 
-/** Emailed attachments are untrusted, never "building records" (the host search should already leave them out). */
+/**
+ * Emailed attachments and unverified handover uploads are untrusted, never "building records" (the host
+ * search should already leave them out).
+ */
 function isEmailed(hit: SearchHit, doc: { meta: { uploadedBy: string } } | null): boolean {
-  return !!emailedBy(doc?.meta.uploadedBy ?? hit.uploadedBy);
+  const uploadedBy = doc?.meta.uploadedBy ?? hit.uploadedBy;
+  return !!emailedBy(uploadedBy) || !!handoverUploadedBy(uploadedBy);
 }
 
 async function findFact(facts: Facts, query: string, patterns: RegExp[]): Promise<DocFact | null> {
