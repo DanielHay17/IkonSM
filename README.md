@@ -25,6 +25,9 @@ See [`DEMO.md`](DEMO.md) for the 10-minute demo script, [`PLAN.md`](PLAN.md) for
 | Building → Agent | Chat with the building agent, grounded in its files, with citations |
 | Building → Computer | The agent's live activity feed, memory notes and current AI engine |
 | Building → Contacts | Owners, council, tenants/PMs, contractors, insurer |
+| Onboarding | Every new scheme being taken on: % complete, what blocks go-live, and the management company and outgoing manager directories |
+| Onboarding → project | Overview (8 section cards, handover invitation), Tasks, Handover documents, Go-live checks, Approvals, project Map and Activity |
+| Handover portal (`/handover/<link>`) | The outgoing manager's upload page: no login, one expiring link per handover |
 
 ## Run locally
 
@@ -176,6 +179,37 @@ Setup (an Ikon Microsoft 365 admin, about 5 minutes; the app shows these steps t
 
 Tokens are encrypted at rest in R2 (AES-GCM, key derived from `SESSION_SECRET`) and never reach the browser. The hub only reads from Microsoft 365; it never writes there.
 
+## Onboarding a new building
+
+This rebuilds Peter's Zoho "Onboarding Dashboard" inside the hub, keyed by building. The spec is in [`docs/ONBOARDING_SPEC.md`](docs/ONBOARDING_SPEC.md).
+
+- **One project per building**, stored in that building's agent. It has the same 8 sections as Peter's dashboard:
+  1. Outgoing manager
+  2. Stratafy
+  3. Xero setup
+  4. Appointment & owners
+  5. Finance & compliance
+  6. Facilities & site
+  7. Readiness & closeout
+  8. Communications and introductions
+
+  Together they hold 82 tasks, 30 handover documents and 56 go-live checks.
+- **The checklist is SAMPLE** until Peter supplies his own. Edit `worker/seed/onboarding-template.ts`.
+- **The team** is Peter King plus four SAMPLE staff (`STAFF_DIRECTORY` in `shared/onboarding.ts`). Everyone shares the hub login, and the name you sign in with is who you act as.
+- **Each section has an owner and an approver.** Go-live approval stays blocked until every section is reviewed and every required task, document and check is done or marked not applicable. Approval switches the building from "onboarding" to "active".
+- **The handover invitation:**
+  - It creates a secure link for the outgoing manager: `/handover/<SP>-<43 random characters>`, valid for 30 days by default, up to 90.
+  - Only a SHA-256 hash and an AES-GCM-encrypted copy of the link are stored (key from `SESSION_SECRET`).
+  - Unknown links get 404. Withdrawn or expired links get 410. Activating a new link withdraws the old one.
+  - The handover letter, in Peter's style, is drafted into **Approvals**. Nothing is sent until someone approves it.
+- **The portal:**
+  - The outgoing manager drags in files, folders or a SharePoint/OneDrive zip.
+  - Zips are read in the browser (zip.js), so large exports don't time out.
+  - Each file is matched to the requested document and folder (`shared/handover-match.ts`), and they can correct the match before uploading.
+  - Limits: 25 MB per file; 3,000 files and 5 GB per link; 600 requests a minute per link and IP, and 30 notes or submits a minute.
+- **Handover uploads are untrusted** until staff verify them. They are filed as `handover:<name>` in the building's Files, and are excluded from the agents' search, drafting and document reading until verified.
+- **Demo:** **Load demo scenario** (or `POST /api/demo/load`) creates SP 87192 Kewdale nine days in, with an active link, and SP 82719 Rivervale as a fresh draft. `docs/demo/` has a SAMPLE SharePoint-style zip to drag into the portal.
+
 ## Safety model
 
 - **Inbound is untrusted.**
@@ -183,6 +217,7 @@ Tokens are encrypted at rest in R2 (AES-GCM, key derived from `SESSION_SECRET`) 
   - Prompt-injection attempts are flagged and get no auto-draft.
   - Emailed attachments are filed as "Emailed by X" and are kept out of the agents' trusted context until promoted.
   - Senders whose From: fails authentication are marked unverified and never merged into a contact's thread.
+  - Files from the outgoing manager's handover portal are untrusted until a staff member verifies them.
 - **A human approves every outbound message.**
   - The agent drafts the reply and the contractor dispatch.
   - A staff member approves, edits or rejects each one.

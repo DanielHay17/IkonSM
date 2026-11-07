@@ -190,6 +190,40 @@ export function answerWithSources(text: string, hits: SearchHit[]): { text: stri
 const LIGHT_MODE = `LIGHT MODE (Workers AI)
 You are running on Workers AI without tools. Answer only from the document excerpts, open items and memory notes given in this conversation. You cannot search further, read whole documents, create work orders, draft replies or save memory notes: if staff ask for one of those, say it needs the full Claude agent or the buttons in the hub. Cite excerpts by number in square brackets, for example [2]. If the excerpts do not answer the question, say so plainly and suggest what to check.`;
 
+/** Things staff can ask for that light mode can't do, with where to do them instead. */
+const LIGHT_MODE_ACTIONS: { ask: RegExp; note: string }[] = [
+  {
+    ask: /^\s*(?:please\s+|can you\s+|could you\s+)?(?:remember|note that|make a note|save (?:a|this as a) (?:memory )?note|add (?:a )?memory note)\b/i,
+    note: "Nothing was saved: memory notes can't be saved in light mode. Add it under Computer → New memory note, or switch the AI to Claude.",
+  },
+  {
+    ask: /\b(?:create|raise|open|log)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:work order|ticket|job)\b/i,
+    note: "No work order was created: light mode can't create one. Use Work orders → New work order, or switch the AI to Claude.",
+  },
+  {
+    ask: /\b(?:draft|write|send)\s+(?:a\s+|the\s+)?(?:reply|response|email)\b/i,
+    note: "No draft was made: light mode can't draft replies. Open the thread and use Draft reply, or switch the AI to Claude.",
+  },
+];
+
+/** A sentence in which the model says it did something it has no tool for ("I have recorded this…"). */
+const CLAIMED_ACTION = /[^.!?\n]*\bI(?:'ve| have| will|'ll)?\s+(?:now\s+|also\s+)?(?:recorded|noted|saved|remembered|stored|logged|created|raised|opened|drafted|sent|added)\b[^.!?\n]*[.!?]?/gi;
+
+/**
+ * Light mode has no tools, but the model sometimes says it saved a note or raised a work order anyway. When staff
+ * asked for one of those actions, drop any sentence claiming it was done and say plainly where to do it.
+ */
+export function guardLightModeClaims(userText: string, answer: string): string {
+  const action = LIGHT_MODE_ACTIONS.find((a) => a.ask.test(userText));
+  if (!action) return answer;
+  const cleaned = answer
+    .replace(CLAIMED_ACTION, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return cleaned ? `${cleaned}\n\n${action.note}` : action.note;
+}
+
 /** One-line footer appended to every Workers AI chat answer. */
 export function lightModeFooter(model: string, basis = "a document search"): string {
   return `(Workers AI ${model}, light mode: one answer from ${basis}, no tools. Check important facts against the cited documents.)`;
@@ -366,8 +400,9 @@ export async function workersAiChat(
     tag: "chat",
   });
   const answer = answerWithSources(text, hits);
+  const body = guardLightModeClaims(opts.userText, answer.text || "I couldn't produce an answer from the document search.");
   return {
-    text: `${answer.text || "I couldn't produce an answer from the document search."}\n\n${lightModeFooter(model)}`,
+    text: `${body}\n\n${lightModeFooter(model)}`,
     citations: answer.citations,
     toolCalls,
     model,

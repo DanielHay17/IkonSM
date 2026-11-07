@@ -8,6 +8,7 @@ import { aiProvider } from "../worker/ai/client";
 import { paragraphs } from "../worker/ai/drafting";
 import { aiSwitchInfo, CHIEF_OF_STAFF_NAME, engineAvailable, readAiChoice, withAiChoice, withSetting } from "../worker/ai/switch";
 import { mergeWithRules, rulesTriage } from "../worker/ai/triage";
+import { guardLightModeClaims } from "../worker/ai/workers-ai";
 import { DEMO_SCENARIO } from "../worker/seed/demo";
 import { callJson, loginAndSeed, PILOT, simulate, tag, burstPipe } from "./helpers";
 
@@ -154,5 +155,28 @@ describe("Workers AI polish", () => {
     expect(merged.responsibility).toBe(rules.responsibility);
     expect(merged.allocateTo).toEqual(expect.arrayContaining(rules.allocateTo));
     expect(merged.safetyNotice).toMatch(/000/);
+  });
+});
+
+describe("light mode never claims an action it can't take", () => {
+  it("drops a claimed memory note and says where to add one", () => {
+    const out = guardLightModeClaims(
+      "Remember that the outgoing manager said the keys are with the caretaker.",
+      'The keys are with the caretaker (source: "Keys register.txt"). I have recorded this information for future reference.',
+    );
+    expect(out).not.toMatch(/recorded/i);
+    expect(out).toMatch(/keys are with the caretaker/);
+    expect(out).toMatch(/Nothing was saved/);
+    expect(out).toMatch(/Computer → New memory note/);
+  });
+
+  it("covers work orders and drafts", () => {
+    expect(guardLightModeClaims("Please create a work order for the gate", "I've created a work order for the gate.")).toMatch(/^No work order was created/);
+    expect(guardLightModeClaims("Draft a reply to Jane", "I have drafted a reply to Jane. It says hello.")).toMatch(/^It says hello\.\n\nNo draft was made/);
+  });
+
+  it("leaves ordinary questions alone", () => {
+    const answer = "The outgoing manager noted the keys are with the caretaker. I have checked the register [1].";
+    expect(guardLightModeClaims("Where are the keys?", answer)).toBe(answer);
   });
 });
