@@ -1,7 +1,7 @@
 // Shared bits of the portal's visual language: status chips, Perth dates and the hidden file inputs.
 
 import { forwardRef, type ComponentPropsWithoutRef } from "react";
-import { HANDOVER_STATUS_LABELS, type HandoverItemStatus } from "../../../shared/onboarding";
+import type { HandoverItemStatus } from "../../../shared/onboarding";
 import { Badge, type BadgeTone } from "../../components/Badge";
 
 // Amber only for "awaiting" (with Ikon to verify), red for "needs replacing", green for verified. A
@@ -14,10 +14,19 @@ const ITEM_TONES: Record<HandoverItemStatus, BadgeTone> = {
   not_applicable: "slate",
 };
 
+/** The outgoing manager's words for each state: the same as the progress legend and the filters. */
+export const PORTAL_STATUS_LABELS: Record<HandoverItemStatus, string> = {
+  awaiting_supply: "Still needed",
+  awaiting_verification: "With Ikon to verify",
+  verified: "Verified by Ikon",
+  rejected: "Needs replacing",
+  not_applicable: "Not applicable",
+};
+
 export function ItemStatusBadge({ status }: { status: HandoverItemStatus }) {
   return (
     <Badge tone={ITEM_TONES[status]} dot>
-      {HANDOVER_STATUS_LABELS[status]}
+      {PORTAL_STATUS_LABELS[status]}
     </Badge>
   );
 }

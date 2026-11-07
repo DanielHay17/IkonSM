@@ -527,31 +527,47 @@ api.post("/settings/ai", async (c) => {
  * Replaces the simulated messages in the demo buildings with a few days of SAMPLE activity, and the demo
  * onboarding projects (SP 87192 nine days in, SP 82719 a fresh draft) with new ones.
  */
-api.post("/demo/load", async (c) => {
-  const cos = await chiefOfStaff(c.env);
-  if (await cos.ensureSeeded()) portfolioSeeded = true;
-  const results = await Promise.all(
-    Object.entries(DEMO_SCENARIO).map(async ([id, items]) => ({
-      propertyId: id,
-      ...(await (await getAgentByName(c.env.PropertyAgent, id)).loadDemo(items, c.var.staffName)),
-    })),
-  );
-  const onboarding = await loadOnboardingDemo(c.env, c.var.staffName, publicBaseUrl(c));
-  return c.json({ buildings: results, onboarding });
-});
+api.post("/demo/load", (c) =>
+  oneDemoAtATime(async () => {
+    const cos = await chiefOfStaff(c.env);
+    if (await cos.ensureSeeded()) portfolioSeeded = true;
+    const results = await Promise.all(
+      Object.entries(DEMO_SCENARIO).map(async ([id, items]) => ({
+        propertyId: id,
+        ...(await (await getAgentByName(c.env.PropertyAgent, id)).loadDemo(items, c.var.staffName)),
+      })),
+    );
+    const onboarding = await loadOnboardingDemo(c.env, c.var.staffName, publicBaseUrl(c));
+    return c.json({ buildings: results, onboarding });
+  }),
+);
+
+/** Loading (or clearing) the demo twice at once would race on the same buildings: the second gets a 409. */
+let demoBusy = false;
+async function oneDemoAtATime(fn: () => Promise<Response>): Promise<Response> {
+  if (demoBusy) throw new HTTPException(409, { message: "The demo data is already being loaded or cleared. Please wait a moment and try again." });
+  demoBusy = true;
+  try {
+    return await fn();
+  } finally {
+    demoBusy = false;
+  }
+}
 
 /**
  * Deletes simulated messages (with their drafts and work orders) in every building, and the demo onboarding
  * projects with their uploads. Real mail and real onboarding projects are untouched.
  */
-api.post("/demo/clear", async (c) => {
-  if (await (await chiefOfStaff(c.env)).ensureSeeded()) portfolioSeeded = true;
-  const results = await Promise.all(
-    PORTFOLIO_IDS.map(async (id) => ({ propertyId: id, ...(await (await getAgentByName(c.env.PropertyAgent, id)).resetSimulated(c.var.staffName)) })),
-  );
-  const onboarding = await clearOnboardingDemo(c.env, c.var.staffName);
-  return c.json({ buildings: results.filter((r) => r.threads > 0), onboarding });
-});
+api.post("/demo/clear", (c) =>
+  oneDemoAtATime(async () => {
+    if (await (await chiefOfStaff(c.env)).ensureSeeded()) portfolioSeeded = true;
+    const results = await Promise.all(
+      PORTFOLIO_IDS.map(async (id) => ({ propertyId: id, ...(await (await getAgentByName(c.env.PropertyAgent, id)).resetSimulated(c.var.staffName)) })),
+    );
+    const onboarding = await clearOnboardingDemo(c.env, c.var.staffName);
+    return c.json({ buildings: results.filter((r) => r.threads > 0), onboarding });
+  }),
+);
 
 // Onboarding: the staff register, the dashboard list, the directories and the outgoing manager's portal ------
 

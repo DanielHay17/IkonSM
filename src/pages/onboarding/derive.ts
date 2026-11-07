@@ -4,8 +4,10 @@
 
 import {
   PROJECT_STATUS_LABELS,
+  QA_GROUP,
   REVIEW_STATUS_LABELS,
   SECTION_KEYS,
+  sectionProgress,
   TASK_STATUS_LABELS,
   staffById,
   type CloseoutStatus,
@@ -20,7 +22,6 @@ import {
   type ProjectCounts,
   type SectionCounts,
   type SectionKey,
-  type SectionProgress,
   type TaskStatus,
   type VaultFolderName,
 } from "../../../shared/onboarding";
@@ -30,8 +31,9 @@ import { VAULT_FOLDERS } from "../../../shared/types";
 export const GO_LIVE_LABELS: Record<GoLiveStatus, string> = { not_reviewed: "Not reviewed", approved: "Approved" };
 export const CLOSEOUT_LABELS: Record<CloseoutStatus, string> = { open: "Open", closed: "Closed" };
 
-/** The Readiness & closeout group that gates closeout rather than go-live. */
-export const QA_GROUP = "Completion & quality assurance";
+// The Readiness & closeout group that gates closeout, and the section progress rule, are the Worker's own
+// (shared/onboarding.ts), so the screens and the server can't disagree.
+export { QA_GROUP, sectionProgress };
 
 // ===========================================================================
 // Headline numbers
@@ -72,13 +74,6 @@ export function countTasks(tasks: readonly OnboardingTask[]): SectionCounts {
     else counts.excluded++;
   }
   return counts;
-}
-
-/** As the Worker derives it: not started (nothing done or excluded), complete (nothing open), else in progress. */
-export function sectionProgress(counts: SectionCounts): SectionProgress {
-  if (counts.done === 0 && counts.excluded === 0) return "not_started";
-  if (counts.open === 0) return "complete";
-  return "in_progress";
 }
 
 /** The project with one task replaced, its section's counts and progress and the project's task counts redone. */
@@ -130,10 +125,6 @@ export function withSection<P extends OnboardingProject>(project: P, section: On
   return { ...project, sections: project.sections.map((s) => (s.key === section.key ? section : s)) };
 }
 
-export function withInvite<P extends OnboardingProject>(project: P, invite: HandoverInvite): P {
-  const exists = project.invites.some((i) => i.id === invite.id);
-  return { ...project, invites: exists ? project.invites.map((i) => (i.id === invite.id ? invite : i)) : [invite, ...project.invites] };
-}
 
 // ===========================================================================
 // Tasks: filters (kept in the URL) and grouping
@@ -251,8 +242,6 @@ export interface InviteBuckets {
   drafts: HandoverInvite[];
   /** The live link: active, or submitted and still open for late documents. */
   current: HandoverInvite | null;
-  /** Everything else (revoked, expired, or an older submitted one), newest first. */
-  history: HandoverInvite[];
 }
 
 export function inviteBuckets(invites: readonly HandoverInvite[]): InviteBuckets {
@@ -261,7 +250,6 @@ export function inviteBuckets(invites: readonly HandoverInvite[]): InviteBuckets
   return {
     drafts: sorted.filter((i) => i.status === "draft"),
     current,
-    history: sorted.filter((i) => i.status !== "draft" && i !== current),
   };
 }
 
@@ -324,10 +312,12 @@ function reviewNote(...sections: OnboardingSection[]): string {
   return REVIEW_STATUS_LABELS.not_reviewed;
 }
 
+/** "4 / 13 done · 1 excluded": the same convention as the section cards and the Approvals tab. */
 function taskCounts(...sections: OnboardingSection[]): string {
-  const done = sections.reduce((n, s) => n + s.counts.done + s.counts.excluded, 0);
+  const done = sections.reduce((n, s) => n + s.counts.done, 0);
+  const excluded = sections.reduce((n, s) => n + s.counts.excluded, 0);
   const total = sections.reduce((n, s) => n + s.counts.total, 0);
-  return `${done} / ${total} tasks`;
+  return `${done} / ${total} done${excluded ? ` · ${excluded} excluded` : ""}`;
 }
 
 function sectionMilestone(key: string, title: string, phase: MilestonePhase, section: OnboardingSection): Milestone {
@@ -362,7 +352,7 @@ export function projectMilestones(detail: OnboardingProjectDetail, now: number =
   // Handover requested
   let requested: Pick<Milestone, "status" | "note" | "counts">;
   if (everActivated) {
-    const live = current && current.status !== "expired";
+    const live = current !== null;
     requested = {
       status: live || closed || outstanding === 0 ? "done" : "blocked",
       counts: current?.submittedAt ? "Pack submitted" : current ? (current.accessCount ? `Opened ${current.accessCount === 1 ? "once" : `${current.accessCount} times`}` : "Not opened yet") : "Link sent",

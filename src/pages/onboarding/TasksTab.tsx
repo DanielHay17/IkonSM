@@ -38,6 +38,15 @@ import { useProject } from "./ProjectContext";
 import { ProgressText, StaffAvatar } from "./ui";
 
 const STATUSES: TaskStatus[] = ["open", "done", "excluded", "cancelled"];
+/** The "Showing N of M tasks" line: focus goes there when a change takes the row out of a filtered list. */
+const SHOWING_ID = "tasks-showing";
+
+/** After a change that may remove the row (a filtered list), keep keyboard focus on the page. */
+function keepFocus() {
+  requestAnimationFrame(() => {
+    if (!document.activeElement || document.activeElement === document.body) document.getElementById(SHOWING_ID)?.focus();
+  });
+}
 
 function FilterSelect({ label, value, onChange, children }: { label: string; value: string; onChange: (value: string) => void; children: ReactNode }) {
   const id = useId();
@@ -70,7 +79,8 @@ function FilterBar({ filters, onChange, shown, total }: { filters: TaskFilters; 
           </FilterSelect>
         </div>
         <div className="sm:w-48">
-          <FilterSelect label="Owner" value={filters.owner ?? ""} onChange={(v) => onChange({ ...filters, owner: v || null })}>
+          {/* An owner and "Mine" are one choice: picking either replaces the other. */}
+          <FilterSelect label="Owner" value={filters.mine ? (acting?.id ?? "") : (filters.owner ?? "")} onChange={(v) => onChange({ ...filters, owner: v || null, mine: false })}>
             <option value="">Anyone</option>
             <option value="unassigned">Unassigned</option>
             {STAFF_DIRECTORY.map((s) => (
@@ -95,7 +105,7 @@ function FilterBar({ filters, onChange, shown, total }: { filters: TaskFilters; 
           aria-pressed={filters.mine}
           disabled={!acting}
           title={acting ? `Only tasks owned by ${acting.name}` : "Your sign-in name is not in the staff register"}
-          onClick={() => onChange({ ...filters, mine: !filters.mine })}
+          onClick={() => onChange({ ...filters, mine: !filters.mine, owner: null })}
           className={cx(
             "inline-flex h-9 items-center justify-center gap-2 border px-3 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:text-muted",
             filters.mine ? "border-ink bg-accent text-white" : "border-line-input bg-surface text-ink hover:border-ink",
@@ -106,7 +116,7 @@ function FilterBar({ filters, onChange, shown, total }: { filters: TaskFilters; 
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] text-ink-soft">
-        <p aria-live="polite">
+        <p id={SHOWING_ID} tabIndex={-1} aria-live="polite" className="focus:outline-none">
           Showing <span className="font-semibold text-ink tabular-nums">{shown}</span> of {total} tasks
           {section ? ` in ${section.title}` : ""}
         </p>
@@ -276,11 +286,17 @@ function CommitSelect({
 }
 
 function TaskRow({ task, today }: { task: OnboardingTask; today: string }) {
-  const { patchTask, saving } = useProject();
+  const { patchTask, saving, readOnly } = useProject();
   const statusId = useId();
   const ownerId = useId();
   const titleId = useId();
   const [editingNote, setEditingNote] = useState(false);
+  const noteButton = useRef<HTMLButtonElement>(null);
+  const closeNote = () => {
+    setEditingNote(false);
+    // The editor's buttons are gone: back to the Add note (or Edit) button that opened it.
+    requestAnimationFrame(() => noteButton.current?.focus());
+  };
   const busy = saving.has(`task:${task.id}`);
   const done = task.status === "done";
   const setAside = task.status === "excluded" || task.status === "cancelled";
@@ -288,112 +304,130 @@ function TaskRow({ task, today }: { task: OnboardingTask; today: string }) {
 
   return (
     <li className="px-4 py-3.5" aria-busy={busy || undefined}>
-      <div className="flex gap-3">
-        <input
-          type="checkbox"
-          checked={done}
-          onChange={(e) => void patchTask(task, { status: e.target.checked ? "done" : "open" })}
-          aria-labelledby={titleId}
-          aria-describedby={`${titleId}-state`}
-          className="mt-0.5 size-[18px] shrink-0 accent-[#292929]"
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:gap-4">
-            <div className="min-w-0 flex-1">
-              <p id={titleId} className={cx("text-sm leading-snug font-medium", done ? "text-ink-soft" : setAside ? "text-muted line-through" : "text-ink")}>
-                <span className="sr-only">Done: </span>
-                {task.title}
-              </p>
-              <p className="mt-1 text-xs leading-relaxed text-muted">{task.detail}</p>
-              <p id={`${titleId}-state`} className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                {done ? (
-                  <span className="inline-flex items-center gap-1 font-medium text-emerald-800">
-                    <Icon name="check" className="size-3.5" />
-                    Done{task.completedBy ? ` by ${task.completedBy}` : ""}
-                    {task.completedAt ? ` · ${formatDate(task.completedAt)}` : ""}
-                  </span>
-                ) : setAside ? (
-                  <span className="text-muted">{TASK_STATUS_LABELS[task.status]}</span>
-                ) : overdue ? (
-                  <span className="inline-flex items-center gap-1 font-medium text-red-700">
-                    <Icon name="clock" className="size-3.5" />
-                    Overdue · due {formatLongDate(task.dueDate)}
-                  </span>
-                ) : task.dueDate ? (
-                  <span className="text-ink-soft">Due {formatLongDate(task.dueDate)}</span>
-                ) : (
-                  <span className="sr-only">Open</span>
-                )}
-                {busy ? (
-                  <span className="inline-flex animate-[fade-in_160ms_ease-out_400ms_both] items-center gap-1 text-muted">
-                    <Spinner className="size-3" label={null} /> Saving…
-                  </span>
-                ) : null}
-              </p>
+      {/* A closed project's tasks are history: every control in the row is disabled. */}
+      <fieldset disabled={readOnly} className="contents">
+        <div className="flex gap-3">
+          {/* A padded label makes the whole 40 px square the tap target, not just the 18 px box. */}
+          <label className="-m-2.5 grid size-10 shrink-0 cursor-pointer place-items-center self-start">
+            <input
+              type="checkbox"
+              checked={done}
+              onChange={(e) => {
+                void patchTask(task, { status: e.target.checked ? "done" : "open" });
+                keepFocus();
+              }}
+              aria-label={`Done: ${task.title}`}
+              aria-describedby={`${titleId}-state`}
+              className="size-[18px] accent-[#292929]"
+            />
+          </label>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:gap-4">
+              <div className="min-w-0 flex-1">
+                <p id={titleId} className={cx("text-sm leading-snug font-medium", done ? "text-ink-soft" : setAside ? "text-muted line-through" : "text-ink")}>
+                  {task.title}
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted">{task.detail}</p>
+                <p id={`${titleId}-state`} className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  {done ? (
+                    <span className="inline-flex items-center gap-1 font-medium text-emerald-800">
+                      <Icon name="check" className="size-3.5" />
+                      Done{task.completedBy ? ` by ${task.completedBy}` : ""}
+                      {task.completedAt ? ` · ${formatDate(task.completedAt)}` : ""}
+                    </span>
+                  ) : setAside ? (
+                    <span className="text-muted">{TASK_STATUS_LABELS[task.status]}</span>
+                  ) : overdue ? (
+                    <span className="inline-flex items-center gap-1 font-medium text-red-700">
+                      <Icon name="clock" className="size-3.5" />
+                      Overdue · due {formatLongDate(task.dueDate)}
+                    </span>
+                  ) : task.dueDate ? (
+                    <span className="text-ink-soft">Due {formatLongDate(task.dueDate)}</span>
+                  ) : (
+                    <span className="sr-only">Open</span>
+                  )}
+                  {busy ? (
+                    <span className="inline-flex animate-[fade-in_160ms_ease-out_400ms_both] items-center gap-1 text-muted">
+                      <Spinner className="size-3" label={null} /> Saving…
+                    </span>
+                  ) : null}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-[8.5rem_12rem_9.75rem] lg:shrink-0">
+                <div className="min-w-0">
+                  <label htmlFor={statusId} className="sr-only">
+                    Status of {task.title}
+                  </label>
+                  <CommitSelect
+                    id={statusId}
+                    value={task.status}
+                    onCommit={(status) => {
+                      void patchTask(task, { status: status as TaskStatus });
+                      keepFocus();
+                    }}
+                    className={selectClasses("text-[13px]! pl-2!", "h-9")}
+                  >
+                    {STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {TASK_STATUS_LABELS[s]}
+                      </option>
+                    ))}
+                  </CommitSelect>
+                </div>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <StaffAvatar staffId={task.ownerId} />
+                  <label htmlFor={ownerId} className="sr-only">
+                    Owner of {task.title}
+                  </label>
+                  <CommitSelect
+                    id={ownerId}
+                    value={task.ownerId ?? ""}
+                    onCommit={(owner) => void patchTask(task, { ownerId: owner || null })}
+                    className={selectClasses("min-w-0 text-[13px]! pl-2!", "h-9")}
+                  >
+                    <option value="">Unassigned</option>
+                    {STAFF_DIRECTORY.map((s) => (
+                      <option key={s.id} value={s.id} title={STAFF_ROLE_LABELS[s.role]}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </CommitSelect>
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <DueDateInput task={task} onSave={(dueDate) => void patchTask(task, { dueDate })} />
+                </div>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-[8.5rem_12rem_9.75rem] lg:shrink-0">
-              <div className="min-w-0">
-                <label htmlFor={statusId} className="sr-only">
-                  Status of {task.title}
-                </label>
-                <CommitSelect
-                  id={statusId}
-                  value={task.status}
-                  onCommit={(status) => void patchTask(task, { status: status as TaskStatus })}
-                  className={selectClasses("text-[13px]! pl-2!", "h-9")}
-                >
-                  {STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {TASK_STATUS_LABELS[s]}
-                    </option>
-                  ))}
-                </CommitSelect>
-              </div>
-              <div className="flex min-w-0 items-center gap-1.5">
-                <StaffAvatar staffId={task.ownerId} />
-                <label htmlFor={ownerId} className="sr-only">
-                  Owner of {task.title}
-                </label>
-                <CommitSelect
-                  id={ownerId}
-                  value={task.ownerId ?? ""}
-                  onCommit={(owner) => void patchTask(task, { ownerId: owner || null })}
-                  className={selectClasses("min-w-0 text-[13px]! pl-2!", "h-9")}
-                >
-                  <option value="">Unassigned</option>
-                  {STAFF_DIRECTORY.map((s) => (
-                    <option key={s.id} value={s.id} title={STAFF_ROLE_LABELS[s.role]}>
-                      {s.name}
-                    </option>
-                  ))}
-                </CommitSelect>
-              </div>
-              <div className="col-span-2 sm:col-span-1">
-                <DueDateInput task={task} onSave={(dueDate) => void patchTask(task, { dueDate })} />
-              </div>
-            </div>
-          </div>
 
-          {editingNote ? (
-            <NoteEditor task={task} onSave={(note) => void patchTask(task, { note })} onClose={() => setEditingNote(false)} />
-          ) : task.note ? (
-            <div className="mt-2 flex items-start gap-2 border-l-2 border-line-strong bg-subtle px-3 py-1.5 text-xs text-ink-soft">
-              <p className="min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere]">
-                <span className="font-medium text-ink">Note: </span>
-                {task.note}
-              </p>
-              <button type="button" onClick={() => setEditingNote(true)} className="shrink-0 font-medium link-brand">
-                Edit<span className="sr-only"> the note for {task.title}</span>
+            {editingNote ? (
+              <NoteEditor task={task} onSave={(note) => void patchTask(task, { note })} onClose={closeNote} />
+            ) : task.note ? (
+              <div className="mt-2 flex items-start gap-2 border-l-2 border-line-strong bg-subtle px-3 py-1.5 text-xs text-ink-soft">
+                <p className="min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere]">
+                  <span className="font-medium text-ink">Note: </span>
+                  {task.note}
+                </p>
+                {readOnly ? null : (
+                  <button ref={noteButton} type="button" onClick={() => setEditingNote(true)} className="-my-1 inline-flex min-h-6 shrink-0 items-center px-1 font-medium link-brand">
+                    Edit<span className="sr-only"> the note for {task.title}</span>
+                  </button>
+                )}
+              </div>
+            ) : readOnly ? null : (
+              <button
+                ref={noteButton}
+                type="button"
+                onClick={() => setEditingNote(true)}
+                className="mt-1 inline-flex min-h-7 items-center gap-1 pr-1 text-xs font-medium text-ink-soft hover:text-ink"
+              >
+                <Icon name="pencil" className="size-3" />
+                Add note<span className="sr-only"> to {task.title}</span>
               </button>
-            </div>
-          ) : (
-            <button type="button" onClick={() => setEditingNote(true)} className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-ink-soft hover:text-ink">
-              <Icon name="pencil" className="size-3" />
-              Add note<span className="sr-only"> to {task.title}</span>
-            </button>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      </fieldset>
     </li>
   );
 }
@@ -426,10 +460,30 @@ export function TasksTab() {
         </Card>
       ) : (
         <div className="space-y-8">
+          {blocks.length > 1 ? (
+            // Each task row has several controls: these links let a keyboard user skip to a section.
+            <nav aria-label="Jump to a section" className="-mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              {blocks.map(({ section, count }) => (
+                <a
+                  key={section.key}
+                  href={`#tasks-${section.key}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const heading = document.getElementById(`tasks-${section.key}`);
+                    heading?.scrollIntoView({ block: "start" });
+                    heading?.focus({ preventScroll: true });
+                  }}
+                  className="inline-flex min-h-6 items-center font-medium link-brand"
+                >
+                  {section.title} <span className="ml-1 font-normal text-muted tabular-nums">({count})</span>
+                </a>
+              ))}
+            </nav>
+          ) : null}
           {blocks.map(({ section, groups }) => (
             <section key={section.key} aria-labelledby={`tasks-${section.key}`}>
               <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <h2 id={`tasks-${section.key}`} className="heading-display text-[14px] leading-6 text-ink">
+                <h2 id={`tasks-${section.key}`} tabIndex={-1} className="scroll-mt-20 heading-display text-[14px] leading-6 text-ink focus:outline-none">
                   {section.title}
                 </h2>
                 <p className="text-xs text-ink-soft tabular-nums">

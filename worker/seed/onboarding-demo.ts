@@ -116,6 +116,27 @@ export function demoHandoverPlan(items: readonly TemplateHandoverItem[]) {
   };
 }
 
+/**
+ * The 14 go-live checks the pilot has verified: each one agrees with the rest of the demo (its documents are
+ * verified, or the tasks behind it are done). Nothing about the outstanding records, funds or sign-off is ticked.
+ */
+export const PILOT_CHECKS: string[] = [
+  "golive.records.strata-plan", // strata plan verified
+  "golive.records.by-laws", // by-laws verified
+  "golive.records.strata-roll", // strata roll verified; "Prepare the strata roll" done
+  "golive.records.minutes", // general meeting and council minutes verified
+  "golive.stratafy.scheme", // "Create the scheme" done
+  "golive.stratafy.entitlements", // lot entitlements entered
+  "golive.stratafy.council", // council recorded
+  "golive.xero.customer", // Xero setup complete and reviewed
+  "golive.xero.item-codes",
+  "golive.insurance.current", // certificate of currency verified
+  "golive.insurance.sum-insured", // valuation verified
+  "golive.compliance.contract", // contract and appointing resolution done
+  "golive.compliance.disclosure", // disclosure done
+  "golive.finance.gst-bas", // not registered for GST: the BAS task is excluded with that note
+];
+
 const PILOT_PROGRESS: Omit<DemoProgress, "verify" | "reject" | "notApplicable"> = {
   tasks: {
     outgoing_manager: { done: 5, of: 8 },
@@ -134,7 +155,7 @@ const PILOT_PROGRESS: Omit<DemoProgress, "verify" | "reject" | "notApplicable"> 
     communications: { done: 2, of: 6 },
   },
   reviews: { xero: "priya-sample" },
-  checks: { done: 14, of: 56 },
+  checks: PILOT_CHECKS,
   visits: 3,
   lastVisitHoursAgo: 2,
   createdDaysAgo: 9,

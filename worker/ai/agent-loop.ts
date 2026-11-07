@@ -254,6 +254,8 @@ interface RunContext {
   docs: Map<string, SeenDoc>;
   readDocIds: Set<string>;
   savedDraft: SavedDraft | null;
+  /** Set once this turn has read text typed in the outgoing manager's portal: no memory notes after that. */
+  readPortalText: boolean;
 }
 
 interface ToolOutput {
@@ -456,6 +458,13 @@ const IMPLS: Impls = {
   },
 
   async remember({ text }, ctx) {
+    // A memory note goes into every later system prompt; text from outside Ikon must not be able to plant one.
+    if (ctx.readPortalText) {
+      return {
+        result: { saved: false, note: "Not saved: this turn read notes typed by the outgoing manager in the upload portal. Ask a staff member to save it from the Memory screen." },
+        summary: "Did not save a memory note (portal text was read this turn)",
+      };
+    }
     const note = await ctx.host.addMemory(text, "agent");
     return { result: { saved: true, id: note.id }, summary: `Saved memory note: "${truncate(text, 70, "…")}"` };
   },
@@ -478,6 +487,7 @@ const IMPLS: Impls = {
   async onboarding_status(_input, ctx) {
     const report = ctx.host.onboardingStatus ? await ctx.host.onboardingStatus() : null;
     if (!report) return { result: { note: "This building has no onboarding project." }, summary: "Checked onboarding: no project" };
+    ctx.readPortalText = true;
     return { result: report, summary: "Checked the onboarding: outstanding handover documents and go-live blockers" };
   },
 
@@ -645,6 +655,7 @@ export async function runAgent(env: Env, opts: RunAgentOptions): Promise<RunAgen
     docs: new Map(),
     readDocIds: new Set(),
     savedDraft: null,
+    readPortalText: false,
   };
   const toolCalls: ToolCallRecord[] = [];
 

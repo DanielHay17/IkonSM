@@ -76,15 +76,26 @@ export function Button({
   className,
   children,
   type = "button",
+  onClick,
   ...rest
 }: ButtonProps) {
   const iconSize = size === "md" || size === "lg" ? "size-4" : "size-3.5";
+  // While loading the button stays focusable (aria-disabled, clicks ignored): a natively disabled button drops
+  // keyboard focus to <body>, and screen-reader users lose their place.
   return (
     <button
       type={type}
-      className={buttonClasses(variant, size, className)}
-      disabled={disabled || loading}
+      className={buttonClasses(variant, size, cx(loading && "cursor-wait opacity-80", className))}
+      disabled={disabled}
+      aria-disabled={loading || undefined}
       aria-busy={loading || undefined}
+      onClick={(event) => {
+        if (loading) {
+          event.preventDefault();
+          return;
+        }
+        onClick?.(event);
+      }}
       {...rest}
     >
       {loading ? <Spinner className={iconSize} label={null} /> : icon ? <Icon name={icon} className={iconSize} /> : null}

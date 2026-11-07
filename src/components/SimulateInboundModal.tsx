@@ -292,7 +292,7 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
         onClose={() => setConfirmClear(false)}
         onConfirm={clearSimulated}
         title="Clear simulated messages?"
-        description="Deletes every simulated thread in every building, with its drafts and work orders. Real email is not touched."
+        description="Deletes every simulated thread in every building, with its drafts and work orders. It also removes the onboarding demo projects for SP 87192 and SP 82719, including any portal uploads, links and letters. Real email and real onboarding projects are not touched."
         confirmLabel="Clear simulated messages"
       />
       <ConfirmDialog
@@ -301,7 +301,7 @@ export function SimulateInboundModal({ open, onClose, propertyId, propertyLabel,
         onConfirm={loadDemo}
         destructive={false}
         title="Load the demo scenario?"
-        description="Replaces the simulated messages at SP 26707 and three other buildings with a few days of SAMPLE activity: owner emails, drafts waiting for approval and work orders across the board. It uses the rules engine, whatever the AI switch says. Real email is not touched. The burst pipe, prompt injection and s110 presets are left for you to send live."
+        description="Replaces the simulated messages at SP 26707 and three other buildings with a few days of SAMPLE activity: owner emails, drafts waiting for approval and work orders across the board. It uses the rules engine, whatever the AI switch says. Real email is not touched. The burst pipe, prompt injection and s110 presets are left for you to send live. It also resets the onboarding demo projects for SP 87192 and SP 82719, including any portal uploads, links and letters from a rehearsal."
         confirmLabel="Load demo scenario"
       />
     </Modal>

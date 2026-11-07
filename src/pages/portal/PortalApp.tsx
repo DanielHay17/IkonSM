@@ -127,16 +127,32 @@ function Portal({ token }: { token: string }) {
   if (state.status === "invalid" || state.status === "gone") {
     const waiting = snapshot.rows.filter((row) => row.status === "queued" || row.status === "uploading").length;
     const contact = state.view ? `${state.view.incomingManager.name} at Ikon (${state.view.incomingManager.email})` : "your Ikon strata manager";
+    // Without a valid link there is no manager to name: Ikon's public website has the office's contact details.
+    const office = (
+      <p>
+        Not sure who that is? Ikon Strata Management's contact details are at{" "}
+        <a href="https://www.ikonsm.com.au" target="_blank" rel="noreferrer" className="font-medium link-brand">
+          ikonsm.com.au
+        </a>
+        .
+      </p>
+    );
     return state.status === "invalid" ? (
       <PortalMessage icon="lock" title="This link is not valid">
         <p>Check that you opened the whole link from Ikon's handover email: it is long, and some email programs split it over two lines.</p>
         <p>If it still doesn't open, please contact {contact} for a new link.</p>
+        {state.view ? null : office}
       </PortalMessage>
     ) : (
       <PortalMessage icon="clock" title="This link has expired or been withdrawn">
         <p>For security, handover links stop working after their expiry date, or when Ikon sends a new one.</p>
         <p>Please contact {contact} for a new link. Documents you have already uploaded are safe with Ikon.</p>
-        {waiting ? <p className="font-medium text-ink">{countOf(waiting, "file was", "files were")} not sent. Please upload them with the new link.</p> : null}
+        {state.view ? null : office}
+        {waiting ? (
+          <p className="font-medium text-ink">
+            {countOf(waiting, "file was", "files were")} not sent. Please upload {waiting === 1 ? "it" : "them"} with the new link.
+          </p>
+        ) : null}
       </PortalMessage>
     );
   }
@@ -233,8 +249,8 @@ function PortalPage({
           .
         </p>
         <p>
-          This secure link was sent to {view.outgoingManager.name} ({view.outgoingManager.company}). Please don't forward it: anyone with the link can
-          upload documents to this handover.
+          This secure link is for {view.outgoingManager.name} ({view.outgoingManager.company}). Please share it only with colleagues helping with this
+          handover, and not outside your office: anyone with the link can upload documents to it.
         </p>
       </PortalFooter>
     </div>

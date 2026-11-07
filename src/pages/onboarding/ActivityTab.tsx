@@ -1,7 +1,10 @@
-// The project's events, newest first, grouped by day, with a filter by kind.
+// The project's events, newest first, grouped by day, with a filter by kind. Ikon's own actions show by default;
+// the outgoing manager's portal activity (visits, uploads, notes, submit) is one switch away, so it can never
+// crowd the staff history out.
 
 import { useId, useMemo, useState } from "react";
-import type { OnboardingEvent, OnboardingEventKind } from "../../../shared/onboarding";
+import { ONBOARDING_EVENT_LIMIT, type OnboardingEvent, type OnboardingEventKind, type OnboardingEventOrigin } from "../../../shared/onboarding";
+import { Segmented } from "../../components/Tabs";
 import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { selectClasses } from "../../components/Field";
@@ -43,37 +46,58 @@ function groupByDay(events: OnboardingEvent[], now: number): { day: string; even
   return groups;
 }
 
+type OriginFilter = OnboardingEventOrigin | "all";
+
 export function ActivityTab() {
   const { project } = useProject();
   const now = useNow(60_000);
   const filterId = useId();
   const [kind, setKind] = useState<OnboardingEventKind | "all">("all");
-  const kinds = useMemo(() => (Object.keys(KINDS) as OnboardingEventKind[]).filter((k) => project.events.some((e) => e.kind === k)), [project.events]);
+  const [origin, setOrigin] = useState<OriginFilter>("staff");
+  const fromOrigin = useMemo(() => project.events.filter((e) => origin === "all" || e.origin === origin), [project.events, origin]);
+  const kinds = useMemo(() => (Object.keys(KINDS) as OnboardingEventKind[]).filter((k) => fromOrigin.some((e) => e.kind === k)), [fromOrigin]);
   const events = useMemo(
-    () => [...project.events].sort((a, b) => b.at.localeCompare(a.at)).filter((e) => kind === "all" || e.kind === kind),
-    [project.events, kind],
+    () => [...fromOrigin].sort((a, b) => b.at.localeCompare(a.at)).filter((e) => kind === "all" || e.kind === kind),
+    [fromOrigin, kind],
   );
   const days = groupByDay(events, now);
+  const portalCount = project.events.filter((e) => e.origin === "portal").length;
+  const capped = fromOrigin.length >= ONBOARDING_EVENT_LIMIT;
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="w-full sm:w-64">
-          <label htmlFor={filterId} className="mb-1 block text-xs font-medium text-muted">
-            Show
-          </label>
-          <select id={filterId} value={kind} onChange={(e) => setKind(e.target.value as OnboardingEventKind | "all")} className={selectClasses("text-[13px]!", "h-9")}>
-            <option value="all">Everything</option>
-            {kinds.map((k) => (
-              <option key={k} value={k}>
-                {KINDS[k].label}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-wrap items-end gap-3">
+          <Segmented<OriginFilter>
+            label="Whose activity"
+            value={origin}
+            onChange={(next) => {
+              setOrigin(next);
+              setKind("all");
+            }}
+            options={[
+              { value: "staff", label: "Ikon staff" },
+              { value: "portal", label: `Outgoing manager ${portalCount}` },
+              { value: "all", label: "Both" },
+            ]}
+          />
+          <div className="w-full sm:w-64">
+            <label htmlFor={filterId} className="mb-1 block text-xs font-medium text-muted">
+              Show
+            </label>
+            <select id={filterId} value={kind} onChange={(e) => setKind(e.target.value as OnboardingEventKind | "all")} className={selectClasses("text-[13px]!", "h-9")}>
+              <option value="all">Everything</option>
+              {kinds.map((k) => (
+                <option key={k} value={k}>
+                  {KINDS[k].label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <p className="text-xs text-muted" aria-live="polite">
           {plural(events.length, "event")}
-          {project.events.length >= 200 ? " (the latest 200)" : ""}
+          {capped ? ` (the latest ${ONBOARDING_EVENT_LIMIT})` : ""}
         </p>
       </div>
 

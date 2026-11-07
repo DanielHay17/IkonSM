@@ -15,7 +15,7 @@ function GoLivePanel() {
   if (project.closeout === "closed") {
     return (
       <Notice tone="green" icon="check" title="Onboarding closed out">
-        Go-live was approved{project.finalApproval ? ` by ${project.finalApproval.approvedBy} on ${formatDateTime(project.finalApproval.approvedAt)}` : ""} and
+        Go-live was approved{project.finalApproval ? ` by ${project.finalApproval.approvedBy} (${formatDateTime(project.finalApproval.approvedAt, true)})` : ""} and
         the project is closed.
       </Notice>
     );
@@ -73,7 +73,7 @@ export function OverviewTab() {
     <div className="space-y-6">
       <GoLivePanel />
       <p className="text-sm text-ink-soft">
-        {scopeLine(project.counts)} · created by {project.createdBy}, {formatDateTime(project.createdAt)}
+        {scopeLine(project.counts)} · created by {project.createdBy}, {formatDateTime(project.createdAt, true)}
       </p>
       <InvitationCard propertyId={propertyId} spNumber={spNumber} project={project} onChanged={refresh} showRequests />
       <section aria-label="Onboarding sections">

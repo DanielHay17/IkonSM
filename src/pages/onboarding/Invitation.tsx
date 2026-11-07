@@ -1,11 +1,13 @@
 // The handover invitation: Peter's card (saved drafts, Prepare handover draft, the email-delivery note) plus
-// the live link (Copy, Preview letter, Revoke, access stats and the letter waiting in Approvals), drafts
+// the live link (Copy, Preview letter, Withdraw, access stats and the letter's state in Approvals), drafts
 // ready to activate, and the history of requests. The letter preview renders the email exactly as sent.
+// A closed project shows all this as history, without the buttons that would change it.
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { renderEmailHtml } from "../../../shared/email-html";
 import { formatLongDate } from "../../../shared/handover-letter";
 import {
+  inviteDatesProblem,
   STAFF_DIRECTORY,
   STAFF_ROLE_LABELS,
   staffById,
@@ -26,7 +28,7 @@ import { ApprovalStatusBadge } from "../../components/StatusBadges";
 import { useToast } from "../../components/Toast";
 import { useNow } from "../../hooks/useNow";
 import { useResource } from "../../hooks/useResource";
-import { formatDateTime, plural, timeAgo } from "../../lib/format";
+import { formatDateTime, plural, timeAgo, timeAgoLong } from "../../lib/format";
 import { usePortfolio } from "../../providers/PortfolioProvider";
 import { useSession } from "../../providers/SessionProvider";
 import { paths } from "../../router";
@@ -85,7 +87,28 @@ function outgoingLabel(invite: HandoverInvite): string {
 function accessText(invite: HandoverInvite, now: number): string {
   if (!invite.accessCount) return "Not opened yet";
   const times = invite.accessCount === 1 ? "once" : `${invite.accessCount} times`;
-  return `Opened ${times}${invite.lastAccessAt ? `, last ${timeAgo(invite.lastAccessAt, now)}` : ""}`;
+  return `Opened ${times}${invite.lastAccessAt ? `, last ${timeAgoLong(invite.lastAccessAt, now)}` : ""}`;
+}
+
+/** The link with the middle of its token hidden (for screen-sharing); Copy link still copies all of it. */
+export function maskedLink(url: string): string {
+  return url.replace(/(\/handover\/\d{3,6}-)([A-Za-z0-9_-]{4})[A-Za-z0-9_-]+([A-Za-z0-9_-]{4})$/, "$1$2…$3");
+}
+
+/** Whether the letter has gone: sent (approved and delivered), still waiting, or stopped (rejected or failed). */
+type LetterState = "pending" | "sent" | "stopped" | "unknown";
+
+function letterState(approval: Approval | null): LetterState {
+  if (!approval) return "unknown";
+  if (approval.status === "pending") return "pending";
+  if (approval.status === "approved") return "sent";
+  return "stopped";
+}
+
+function useLetterApproval(propertyId: string, invite: HandoverInvite) {
+  const approvals = useResource<Approval[]>(invite.approvalId ? `approvals:${propertyId}:${invite.approvalId}` : null, () => api.propertyApprovals(propertyId));
+  const approval = approvals.data?.find((a) => a.id === invite.approvalId) ?? null;
+  return { approval, loading: approvals.loading, state: letterState(approval) };
 }
 
 function DatesLine({ invite }: { invite: HandoverInvite }) {
@@ -99,35 +122,58 @@ function DatesLine({ invite }: { invite: HandoverInvite }) {
 }
 
 /** The letter's approval in this building's Approvals: its status, so staff know whether it has gone. */
-function LetterApprovalLine({ propertyId, invite }: { propertyId: string; invite: HandoverInvite }) {
-  const approvals = useResource<Approval[]>(invite.approvalId ? `approvals:${propertyId}:${invite.approvalId}` : null, () => api.propertyApprovals(propertyId));
-  const approval = approvals.data?.find((a) => a.id === invite.approvalId) ?? null;
+function LetterApprovalLine({
+  invite,
+  approval,
+  loading,
+  onWithdraw,
+}: {
+  invite: HandoverInvite;
+  approval: Approval | null;
+  loading: boolean;
+  /** Offered when the letter was rejected but the link still works. */
+  onWithdraw: (() => void) | null;
+}) {
   if (!invite.approvalId) return null;
-  const pending = !approval || approval.status === "pending";
+  const state = letterState(approval);
+  const live = invite.status === "active" || invite.status === "submitted";
   return (
     <div className="flex flex-wrap items-start gap-2 border-t border-line pt-3 text-[13px] text-ink-soft">
       <Icon name="mail" className="mt-0.5 size-4 text-taupe" />
-      <p className="min-w-0 flex-1">
-        {pending ? (
+      <div className="min-w-0 flex-1">
+        {state === "sent" ? (
+          <p>
+            The handover letter was sent to {invite.outgoingManager.name}
+            {approval?.decidedAt ? ` (${formatDateTime(approval.decidedAt, true)})` : ""}
+            {approval?.decidedBy ? `, approved by ${approval.decidedBy}` : ""}.
+          </p>
+        ) : state === "stopped" ? (
           <>
+            <p>
+              The handover letter to {invite.outgoingManager.name} was {approval?.status === "failed" ? "not delivered" : "rejected"} in{" "}
+              <Link href={paths.approvals()} className="font-medium link-brand">
+                Approvals
+              </Link>
+              , so nothing was sent.{live ? " The link itself still works." : ""}
+            </p>
+            {live && onWithdraw ? (
+              <Button size="sm" variant="dangerGhost" icon="close" className="mt-2" onClick={onWithdraw}>
+                Withdraw the link
+              </Button>
+            ) : null}
+          </>
+        ) : (
+          <p>
             The handover letter to {invite.outgoingManager.name} is a draft in{" "}
             <Link href={paths.approvals()} className="font-medium link-brand">
               Approvals
             </Link>
             . Nothing is sent until someone approves it. Before approving, confirm the email address and the new trust account details with the
             outgoing manager by phone.
-          </>
-        ) : (
-          <>
-            The handover letter to {invite.outgoingManager.name}:{" "}
-            <Link href={paths.approvals()} className="font-medium link-brand">
-              see Approvals
-            </Link>
-            .
-          </>
+          </p>
         )}
-      </p>
-      {approval ? <ApprovalStatusBadge status={approval.status} /> : approvals.loading ? <Spinner className="size-3.5 text-muted" /> : null}
+      </div>
+      {approval ? <ApprovalStatusBadge status={approval.status} /> : loading ? <Spinner className="size-3.5 text-muted" /> : null}
     </div>
   );
 }
@@ -138,6 +184,7 @@ function CurrentLink({
   freshUrl,
   onPreview,
   onRevoke,
+  readOnly,
 }: {
   propertyId: string;
   invite: HandoverInvite;
@@ -145,19 +192,23 @@ function CurrentLink({
   freshUrl: string | null;
   onPreview: () => void;
   onRevoke: () => void;
+  readOnly: boolean;
 }) {
   const now = useNow(60_000);
   const linkable = invite.status === "active" || invite.status === "submitted";
   const link = useResource(linkable && !freshUrl ? `invite-link:${propertyId}:${invite.id}` : null, () => onboardingApi.inviteLink(propertyId, invite.id));
   const url = freshUrl ?? link.data?.url ?? null;
   const urlId = `invite-url-${invite.id}`;
+  const [shown, setShown] = useState(false);
+  const letter = useLetterApproval(propertyId, invite);
 
   return (
     <div className="mt-5 space-y-3 border border-line bg-subtle px-4 py-4">
       <div className="flex flex-wrap items-center gap-2">
         <InviteStatusBadge status={invite.status} />
         <p className="min-w-0 text-sm font-medium text-ink [overflow-wrap:anywhere]">
-          Sent to {outgoingLabel(invite)} <span className="font-normal text-muted">({invite.outgoingManager.email})</span>
+          {/* "Sent to" only once the letter has actually gone; until then the link is just prepared for them. */}
+          {letter.state === "sent" ? "Letter sent to" : "Link for"} {outgoingLabel(invite)} <span className="font-normal text-muted">({invite.outgoingManager.email})</span>
         </p>
       </div>
       <DatesLine invite={invite} />
@@ -181,7 +232,13 @@ function CurrentLink({
           </label>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             {url ? (
-              <input id={urlId} readOnly value={url} onFocus={(e) => e.currentTarget.select()} className={inputClasses("min-w-0 flex-1 text-[13px]", "h-9")} />
+              <input
+                id={urlId}
+                readOnly
+                value={shown ? url : maskedLink(url)}
+                onFocus={(e) => e.currentTarget.select()}
+                className={inputClasses("min-w-0 flex-1 text-[13px]", "h-9")}
+              />
             ) : link.error ? (
               <p id={urlId} className="flex-1 text-[13px] text-red-700">
                 Couldn't load the link. {link.error.message}
@@ -189,26 +246,45 @@ function CurrentLink({
             ) : (
               <Skeleton className="h-9 flex-1" />
             )}
-            <CopyLinkButton url={url} />
+            <div className="flex gap-2">
+              <Button size="sm" variant="ghost" icon="eye" disabled={!url} onClick={() => setShown((s) => !s)} aria-pressed={shown}>
+                {shown ? "Hide" : "Show"}
+                <span className="sr-only"> the full link</span>
+              </Button>
+              <CopyLinkButton url={url} />
+            </div>
           </div>
+          {shown ? null : <p className="mt-1 text-xs text-muted">Part of the link is hidden on screen. Copy link copies all of it.</p>}
         </div>
       ) : null}
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="secondary" icon="eye" onClick={onPreview}>
           Preview letter
         </Button>
-        {invite.status === "active" || invite.status === "submitted" ? (
+        {(invite.status === "active" || invite.status === "submitted") && !readOnly ? (
           <Button size="sm" variant="dangerGhost" icon="close" onClick={onRevoke}>
-            Revoke link
+            Withdraw link
           </Button>
         ) : null}
       </div>
-      <LetterApprovalLine propertyId={propertyId} invite={invite} />
+      <LetterApprovalLine invite={invite} approval={letter.approval} loading={letter.loading} onWithdraw={readOnly ? null : onRevoke} />
     </div>
   );
 }
 
-function DraftRow({ invite, onPreview, onActivate, onDiscard }: { invite: HandoverInvite; onPreview: () => void; onActivate: () => void; onDiscard: () => void }) {
+function DraftRow({
+  invite,
+  onPreview,
+  onActivate,
+  onDiscard,
+  readOnly,
+}: {
+  invite: HandoverInvite;
+  onPreview: () => void;
+  onActivate: () => void;
+  onDiscard: () => void;
+  readOnly: boolean;
+}) {
   return (
     <li className="space-y-2 border border-line px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -222,15 +298,19 @@ function DraftRow({ invite, onPreview, onActivate, onDiscard }: { invite: Handov
         Prepared by {invite.createdBy} · <span title={formatDateTime(invite.createdAt)}>{timeAgo(invite.createdAt)}</span>
       </p>
       <div className="flex flex-wrap gap-2 pt-1">
-        <Button size="sm" variant="primary" icon="link" onClick={onActivate}>
-          Activate link
-        </Button>
+        {readOnly ? null : (
+          <Button size="sm" variant="primary" icon="link" onClick={onActivate}>
+            Activate link
+          </Button>
+        )}
         <Button size="sm" variant="secondary" icon="eye" onClick={onPreview}>
           Preview letter
         </Button>
-        <Button size="sm" variant="dangerQuiet" icon="trash" onClick={onDiscard}>
-          Discard draft
-        </Button>
+        {readOnly ? null : (
+          <Button size="sm" variant="dangerQuiet" icon="trash" onClick={onDiscard}>
+            Discard draft
+          </Button>
+        )}
       </div>
     </li>
   );
@@ -254,7 +334,7 @@ function RequestsList({ id, invites, onPreview }: { id: string; invites: Handove
                 {invite.revokedAt ? ` · withdrawn ${formatLongDate(invite.revokedAt)}` : ""}
                 {invite.accessCount ? ` · opened ${plural(invite.accessCount, "time")}` : ""}
               </span>
-              <button type="button" onClick={() => onPreview(invite)} className="text-xs font-medium link-brand">
+              <button type="button" onClick={() => onPreview(invite)} className="min-h-6 px-1 text-xs font-medium link-brand">
                 Letter<span className="sr-only"> to {invite.outgoingManager.name}</span>
               </button>
             </li>
@@ -293,6 +373,7 @@ export function InvitationCard({
   const requestsId = `handover-requests-${propertyId}`;
   const all = useMemo(() => [...project.invites].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [project.invites]);
   const headingId = `invitation-${project.id}`;
+  const readOnly = project.status === "closed";
 
   const revoke = async (invite: HandoverInvite) => {
     await onboardingApi.revokeInvite(propertyId, invite.id);
@@ -303,7 +384,7 @@ export function InvitationCard({
 
   return (
     <section id={anchorId} aria-labelledby={headingId} className="scroll-mt-24 border border-line border-t-2 border-t-ink bg-surface px-5 py-5 shadow-card sm:px-6">
-      <h3 id={headingId} className="heading-display text-[15px] leading-6 text-ink">
+      <h3 id={headingId} tabIndex={-1} className="heading-display text-[15px] leading-6 text-ink focus:outline-none">
         Handover invitation
       </h3>
       <p className="mt-2 text-[13px] text-ink-soft">
@@ -311,9 +392,11 @@ export function InvitationCard({
       </p>
       <p className="mt-4 text-xl leading-7 font-semibold text-ink tabular-nums">{plural(drafts.length, "saved draft")}</p>
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3">
-        <Button variant="primary" icon="plus" onClick={() => setPrepareOpen(true)}>
-          Prepare handover draft
-        </Button>
+        {readOnly ? null : (
+          <Button variant="primary" icon="plus" onClick={() => setPrepareOpen(true)}>
+            Prepare handover draft
+          </Button>
+        )}
         {showRequests ? (
           <a href={`#${requestsId}`} className="text-[13px] font-semibold link-brand">
             View handover requests
@@ -324,10 +407,14 @@ export function InvitationCard({
           </Link>
         )}
       </div>
-      <p className="mt-3 text-xs text-muted">
-        Email delivery: not connected. Saving prepares a draft; it does not send an invitation. Activating a draft creates the secure link and puts the
-        letter in Approvals; nothing is sent until someone approves it.
-      </p>
+      {readOnly ? (
+        <p className="mt-3 text-xs text-muted">The project is closed out: its handover links are withdrawn and no new one can be prepared.</p>
+      ) : current ? null : (
+        <p className="mt-3 text-xs text-muted">
+          Email delivery: not connected. Saving prepares a draft; it does not send an invitation. Activating a draft creates the secure link and puts
+          the letter in Approvals; nothing is sent until someone approves it.
+        </p>
+      )}
 
       {current ? (
         <CurrentLink
@@ -336,6 +423,7 @@ export function InvitationCard({
           freshUrl={fresh?.inviteId === current.id ? fresh.url : null}
           onPreview={() => setPreview(current)}
           onRevoke={() => setRevoking(current)}
+          readOnly={readOnly}
         />
       ) : null}
 
@@ -344,6 +432,7 @@ export function InvitationCard({
           {drafts.map((invite) => (
             <DraftRow
               key={invite.id}
+              readOnly={readOnly}
               invite={invite}
               onPreview={() => setPreview(invite)}
               onActivate={() => setActivating(invite)}
@@ -382,6 +471,7 @@ export function InvitationCard({
         onClose={() => setRevoking(null)}
         onConfirm={() => (revoking ? revoke(revoking) : undefined)}
         title={revoking?.status === "draft" ? "Discard this draft?" : "Withdraw this link?"}
+        returnFocus={() => document.getElementById(headingId)}
         description={
           revoking?.status === "draft"
             ? `The draft invitation for ${revoking.outgoingManager.name} is set aside. Nothing was sent.`
@@ -460,10 +550,15 @@ export function PrepareHandoverModal({
     setCompany(companyName(manager.companyId));
   };
 
-  const datesOutOfOrder = !!recordsDue && !!handoverDate && recordsDue > handoverDate;
+  // The server refuses these too; saying so here saves a round trip.
+  const datesProblem = recordsDue && handoverDate ? inviteDatesProblem(handoverDate, recordsDue, localDay()) : null;
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
+    if (datesProblem) {
+      setError(new Error(datesProblem));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -562,10 +657,10 @@ export function PrepareHandoverModal({
             <TextField label="Records due" type="date" value={recordsDue} onChange={(e) => setRecordsDue(e.target.value)} required hint="When the outgoing manager should have supplied the documents." />
             <TextField label="Handover date" type="date" value={handoverDate} onChange={(e) => setHandoverDate(e.target.value)} required hint="The day Ikon takes over management." />
           </div>
-          {datesOutOfOrder ? (
-            <p className="flex items-start gap-2 text-[13px] text-amber-900">
-              <Icon name="alert" className="mt-0.5 size-3.5 shrink-0 text-amber-700" />
-              The records are due after the handover date. Usually they come first.
+          {datesProblem ? (
+            <p role="alert" className="flex items-start gap-2 text-[13px] text-red-800">
+              <Icon name="alert" className="mt-0.5 size-3.5 shrink-0 text-red-700" />
+              {datesProblem}.
             </p>
           ) : null}
         </fieldset>
@@ -581,6 +676,16 @@ export function PrepareHandoverModal({
 // ---------------------------------------------------------------------------
 
 const EXPIRY_OPTIONS = [14, 30, 60, 90];
+/** The link should stay open at least a week past the records due date, for late documents. */
+const LATE_DOCUMENT_DAYS = 7;
+
+/** Whole days from today (local) to a YYYY-MM-DD date. */
+function daysUntil(ymd: string): number {
+  const [y, m, d] = ymd.split("-").map(Number) as [number, number, number];
+  const today = localDay();
+  const [ty, tm, td] = today.split("-").map(Number) as [number, number, number];
+  return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(ty, tm - 1, td)) / 86_400_000);
+}
 
 function ActivateInviteModal({
   propertyId,
@@ -599,12 +704,17 @@ function ActivateInviteModal({
   const [days, setDays] = useState(30);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const dueIn = invite ? daysUntil(invite.recordsDueDate) : 0;
+  // The shortest option that keeps the link open a week past the records due date (or the longest there is).
+  const suggested = EXPIRY_OPTIONS.find((d) => d >= Math.max(30, dueIn + LATE_DOCUMENT_DAYS)) ?? EXPIRY_OPTIONS.at(-1)!;
 
   useEffect(() => {
     if (invite) {
-      setDays(30);
+      setDays(suggested);
       setError(null);
     }
+    // Only when a (new) invitation is opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invite]);
 
   const activate = async () => {
@@ -655,11 +765,18 @@ function ActivateInviteModal({
           ) : null}
           <SelectField label="The link expires after" value={String(days)} onChange={(e) => setDays(Number(e.target.value))}>
             {EXPIRY_OPTIONS.map((d) => (
-              <option key={d} value={d}>
-                {d} days
+              <option key={d} value={d} disabled={d < dueIn}>
+                {d} days{d < dueIn ? " (before the records are due)" : ""}
               </option>
             ))}
           </SelectField>
+          {days < dueIn + LATE_DOCUMENT_DAYS ? (
+            <p className="flex items-start gap-2 text-[13px] text-amber-900">
+              <Icon name="alert" className="mt-0.5 size-3.5 shrink-0 text-amber-700" />
+              The records are due on {formatLongDate(invite.recordsDueDate)}, so this link closes less than a week after that, with little time for
+              late documents.
+            </p>
+          ) : null}
           <FormError error={error} />
         </div>
       ) : null}

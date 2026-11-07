@@ -1,7 +1,7 @@
 // "Submit handover pack": tells Ikon the pack is ready to review (with an optional message). The link
 // keeps working afterwards for late documents, until it expires.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PortalView } from "../../../shared/onboarding";
 import { countOf, formatPortalDate } from "../../../shared/portal-upload";
 import { portalApi } from "../../api";
@@ -34,6 +34,7 @@ export function SubmitPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const doneRef = useRef<HTMLDivElement>(null);
+  const justSubmitted = useRef(false);
   const { progress } = view;
   const supplied = progress.total - progress.outstanding;
   const submitted = view.submittedAt !== null;
@@ -47,13 +48,21 @@ export function SubmitPanel({
       setMessage("");
       onSubmitted(next);
       toast.success("Handover pack submitted", `${view.incomingManager.name} has been told it's ready to review.`);
-      window.requestAnimationFrame(() => doneRef.current?.focus());
+      justSubmitted.current = true;
     } catch (err) {
       if (!onFailure(err)) setError(err);
     } finally {
       setBusy(false);
     }
   };
+
+  // After the dialog has closed (closing hands focus back to the Submit button), move focus to the confirmation.
+  useEffect(() => {
+    if (open || !justSubmitted.current || !submitted) return;
+    justSubmitted.current = false;
+    const timer = window.setTimeout(() => doneRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [open, submitted, view.submittedAt]);
 
   return (
     <Card>

@@ -91,7 +91,10 @@ Put the onboarding logic in a new module `worker/agents/onboarding.ts`, with fun
   - Starts `awaiting_supply`.
   - Moves to `awaiting_verification` on the first file, or when a file arrives after a rejection.
   - Staff can set `verified`, `rejected` (`reviewNote` required, shown in the portal), `not_applicable` or `awaiting_supply`.
-  - The outgoing manager can mark an item `not_applicable` with a note. For a required item this still needs staff verification: the status becomes `awaiting_verification`, and the supplier note is shown to staff.
+  - The outgoing manager can mark an item `not_applicable` with a note. For a required item (or one Ikon sent back, or one with files) this still needs staff: the status becomes `awaiting_verification` with `notApplicableClaimed`, and the supplier note is shown to staff. Staff accept it (`not_applicable`) or send it back; it is never `verified`.
+  - `verified` needs a file, or a review note saying how the document was received (e.g. originals on paper). Reopen (`awaiting_supply`) on an item that still has files gives `awaiting_verification`. Waiving an item with files moves the files to extra files.
+  - Extra files: `POST /properties/:id/onboarding/files/:docId` with `{ action: "verify" }` (a building record) or `{ action: "attach", itemId }`.
+- **After go-live approval** nothing may be reopened in a way that would block go-live again (tasks before go-live, checks, settled documents, reviews); the closeout tasks can still change. **A closed project is read-only:** every mutation returns 409.
 - **Go-live check:** `open` → `verified` or `not_applicable`, and can be reopened.
 
 **Building status:** when go-live is approved, the building's profile status becomes `active`. Store this as a meta override (`status_override`) applied when the profile is read, so re-seeding does not undo it. The portfolio then shows it as active.
@@ -132,7 +135,7 @@ All routes are under `/api` and follow the existing conventions: Hono, zod valid
 | `POST /properties/:id/onboarding/golive/:checkId` | `GoLiveCheckPatch` | `GoLiveCheck` |
 | `POST /properties/:id/onboarding/approve` | `FinalApprovalInput` | `OnboardingProjectDetail` (409 with `{error, blockers}` when blocked) |
 | `POST /properties/:id/onboarding/closeout` | `{}` | `OnboardingProjectDetail` (409 when not allowed) |
-| `POST /properties/:id/onboarding/invites` | `CreateInviteInput` | `HandoverInvite` (201, status `draft`). Also adds the outgoing manager to the building's contacts as role `other`, with notes "Outgoing strata manager (handover)", if not already there. |
+| `POST /properties/:id/onboarding/invites` | `CreateInviteInput` | `HandoverInvite` (201, status `draft`). The handover date can't be in the past, and the records are due on or before it. Also adds the outgoing manager to the building's contacts as role `other`, with notes "Outgoing strata manager (handover)", if not already there (removed again if the draft is discarded unused). |
 | `POST /properties/:id/onboarding/invites/:inviteId/activate` | `{ expiresInDays?: number }` (default 30, max 90) | `{ invite, url }`; see below |
 | `GET /properties/:id/onboarding/invites/:inviteId/link` | | `{ url }` (decrypted; active invites only) |
 | `GET /properties/:id/onboarding/invites/:inviteId/letter` | | `{ subject, text }` |
@@ -153,7 +156,7 @@ All portal routes are under `/api/portal/:token`:
 - The token must match `PORTAL_TOKEN`. The Worker routes to building `sp-<n>`, and the building agent compares the SHA-256 hash in constant time.
 - Unknown tokens or unknown buildings get **404** "This link is not valid."
 - Expired or revoked links get **410** "This link has expired or been withdrawn. Please contact Ikon." Do not reveal which.
-- Rate limit with a new ratelimit binding `PORTAL_LIMITER` (namespace "1002", 600 requests per 60 s), keyed by token + IP.
+- Rate limit with a new ratelimit binding `PORTAL_LIMITER` (namespace "1002", 600 requests per 60 s), keyed first by IP alone (before any building is looked up), then by token + IP. Notes, not-applicable and submit also go through `PORTAL_ACTION_LIMITER` (namespace "1003", 30 per 60 s per token).
 
 | Method and path | Body | Returns |
 |---|---|---|
@@ -168,10 +171,15 @@ All portal routes are under `/api/portal/:token`:
 - No junk files (`isJunkPath`).
 - File names go through `displayFileName`.
 - With no `itemId`, the server runs `matchHandoverFile` and attaches the file to the best item if confidence ≥ 0.5. Otherwise it is an extra file.
-- An upload to a `verified` item is allowed: it adds the file and sets the item back to `awaiting_verification`.
+- An upload to a `verified` item is allowed: it adds the file and sets the item back to `awaiting_verification`. After go-live approval it is filed as an extra file instead, and the item stays verified.
+- Uploads are recorded as sessions: one event (and one building activity line) per invitation for uploads less than 30 minutes apart, "Sam Outgoing uploaded 312 files".
+- The portal shows each link holder only the files and notes that came through their own link; item status is shared.
+- File names, paths and portal notes lose bidi-override, zero-width and control characters; the stored type comes from the extension, never from the browser's claim.
 - Files are filed through `worker/docs/filing.ts` with the `handover:` uploader.
 
-**Submit:** sets the invite to `submitted`. It records an event, logs building activity ("Outgoing manager submitted the handover pack: 18 of 30 documents supplied"), and the Chief of Staff brief mentions it. The portal stays usable for late documents until it expires.
+**Submit:** sets the invite to `submitted`. It records an event, logs building activity ("Outgoing manager submitted the handover pack: 18 of 30 documents supplied"), and the Chief of Staff brief mentions it while documents are still waiting for verification. A repeat within 10 minutes, or with nothing changed, records nothing. The portal stays usable for late documents until it expires.
+
+**History:** events carry an `origin` (`staff` or `portal`); the project returns the newest 200 of each, and the Activity tab shows staff events by default. Building activity lines from the portal have their own retention (1,000), so portal traffic never prunes staff lines.
 
 ## Outgoing manager's portal (`/handover/:token`, public SPA route)
 

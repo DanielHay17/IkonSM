@@ -1,7 +1,7 @@
 // The go-live checks, grouped (Records, Stratafy, Xero, Finance, Insurance, Compliance, Site,
 // Communications): each can be verified, marked not applicable or reopened, with a note.
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import type { GoLiveCheck, GoLiveCheckStatus } from "../../../shared/onboarding";
 import { Badge } from "../../components/Badge";
 import { Button } from "../../components/Button";
@@ -9,10 +9,12 @@ import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { textareaClasses } from "../../components/Field";
 import { Icon } from "../../components/Icon";
+import { Link } from "../../components/Link";
 import { Spinner } from "../../components/Spinner";
 import { Segmented } from "../../components/Tabs";
 import { cx } from "../../lib/cx";
 import { formatDate } from "../../lib/format";
+import { paths } from "../../router";
 import { useProject } from "./ProjectContext";
 import { ProgressBar } from "./ui";
 
@@ -61,11 +63,26 @@ function CheckNote({ check, onDone }: { check: GoLiveCheck; onDone: () => void }
   );
 }
 
+/** The check whose evidence is the extra files: it warns while any of them is still unverified. */
+const EXTRA_FILES_CHECK = "golive.records.extra-files";
+
 function CheckRow({ check }: { check: GoLiveCheck }) {
-  const { patchCheck, saving } = useProject();
+  const { patchCheck, saving, readOnly, project, propertyId } = useProject();
   const [editing, setEditing] = useState(false);
   const busy = saving.has(`check:${check.id}`);
   const settled = check.status !== "open";
+  const titleId = `golive-check-${check.id}`;
+  const noteButton = useRef<HTMLButtonElement>(null);
+  // The Verified / N/A / Reopen buttons swap on a change: focus goes to the check's title, not <body>.
+  const change = (status: GoLiveCheckStatus) => {
+    void patchCheck(check, { status });
+    requestAnimationFrame(() => document.getElementById(titleId)?.focus());
+  };
+  const closeNote = () => {
+    setEditing(false);
+    requestAnimationFrame(() => noteButton.current?.focus());
+  };
+  const unverifiedExtras = check.key === EXTRA_FILES_CHECK ? project.extraFiles.filter((f) => !f.verifiedBy).length : 0;
   return (
     <li className="flex gap-3 px-4 py-3.5">
       <span
@@ -80,7 +97,20 @@ function CheckRow({ check }: { check: GoLiveCheck }) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div className="min-w-0">
-            <p className={cx("text-sm leading-snug", check.status === "not_applicable" ? "text-muted" : "text-ink")}>{check.title}</p>
+            <p id={titleId} tabIndex={-1} className={cx("text-sm leading-snug focus:outline-none", check.status === "not_applicable" ? "text-muted" : "text-ink")}>
+              {check.title}
+            </p>
+            {unverifiedExtras > 0 ? (
+              <p className="mt-1 flex items-start gap-1.5 text-xs text-amber-900">
+                <Icon name="alert" className="mt-px size-3.5 shrink-0 text-amber-700" />
+                <span>
+                  {unverifiedExtras} extra {unverifiedExtras === 1 ? "file is" : "files are"} still unverified.{" "}
+                  <Link href={`${paths.onboardingProject(propertyId, "handover")}#extra-files`} className="font-medium link-brand">
+                    Review the extra files
+                  </Link>
+                </span>
+              </p>
+            ) : null}
             <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
               {check.status === "verified" ? (
                 <Badge tone="green" icon="check">
@@ -100,7 +130,7 @@ function CheckRow({ check }: { check: GoLiveCheck }) {
               {busy ? <Spinner className="size-3" label="Saving" /> : null}
             </p>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <div className={cx("flex shrink-0 flex-wrap gap-2", readOnly && "hidden")}>
             {check.status === "open" ? (
               <>
                 <Button
@@ -109,7 +139,7 @@ function CheckRow({ check }: { check: GoLiveCheck }) {
                   icon="check"
                   disabled={busy}
                   aria-label={`Verified: ${check.title}`}
-                  onClick={() => void patchCheck(check, { status: "verified" })}
+                  onClick={() => change("verified")}
                 >
                   Verified
                 </Button>
@@ -118,32 +148,39 @@ function CheckRow({ check }: { check: GoLiveCheck }) {
                   variant="ghost"
                   disabled={busy}
                   aria-label={`N/A, not applicable: ${check.title}`}
-                  onClick={() => void patchCheck(check, { status: "not_applicable" })}
+                  onClick={() => change("not_applicable")}
                 >
                   N/A
                 </Button>
               </>
             ) : (
-              <Button size="sm" variant="ghost" icon="refresh" disabled={busy} aria-label={`Reopen: ${check.title}`} onClick={() => void patchCheck(check, { status: "open" })}>
+              <Button size="sm" variant="ghost" icon="refresh" disabled={busy} aria-label={`Reopen: ${check.title}`} onClick={() => change("open")}>
                 Reopen
               </Button>
             )}
           </div>
         </div>
         {editing ? (
-          <CheckNote check={check} onDone={() => setEditing(false)} />
+          <CheckNote check={check} onDone={closeNote} />
         ) : check.note ? (
           <div className="mt-2 flex items-start gap-2 border-l-2 border-line-strong bg-subtle px-3 py-1.5 text-xs text-ink-soft">
             <p className="min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere]">
               <span className="font-medium text-ink">Note: </span>
               {check.note}
             </p>
-            <button type="button" onClick={() => setEditing(true)} className="shrink-0 font-medium link-brand">
-              Edit<span className="sr-only"> the note for {check.title}</span>
-            </button>
+            {readOnly ? null : (
+              <button ref={noteButton} type="button" onClick={() => setEditing(true)} className="-my-1 inline-flex min-h-6 shrink-0 items-center px-1 font-medium link-brand">
+                Edit<span className="sr-only"> the note for {check.title}</span>
+              </button>
+            )}
           </div>
-        ) : (
-          <button type="button" onClick={() => setEditing(true)} className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-ink-soft hover:text-ink">
+        ) : readOnly ? null : (
+          <button
+            ref={noteButton}
+            type="button"
+            onClick={() => setEditing(true)}
+            className="mt-1 inline-flex min-h-7 items-center gap-1 pr-1 text-xs font-medium text-ink-soft hover:text-ink"
+          >
             <Icon name="pencil" className="size-3" />
             Add note<span className="sr-only"> to {check.title}</span>
           </button>

@@ -28,6 +28,8 @@ import type {
   FinalApprovalInput,
   GoLiveCheck,
   GoLiveCheckPatch,
+  HandoverFile,
+  HandoverFileAction,
   HandoverInvite,
   HandoverItem,
   HandoverItemPatch,
@@ -171,6 +173,8 @@ const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const MAX_CHAT_CHARS = 8000;
 const ACTIVITY_RETENTION = 5000;
+/** Activity lines from the outgoing manager's portal are kept apart (and fewer), so they never evict staff lines. */
+const PORTAL_ACTIVITY_RETENTION = 1000;
 const RECENT_ACTIVITY = 25;
 const LIST_LIMIT = 500;
 /** Inbound emails per sender per Perth day before the agent stops drafting automatically and filing attachments. */
@@ -649,6 +653,8 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     const doc = this.findDoc(id);
     if (!doc) return null;
     this.ctx.storage.transactionSync(() => this.removeDocumentRows(id));
+    // A handover upload: its requested document may now have no files, and its link's quota is freed.
+    ob.forgetHandoverDocument(this.onboardingHost(), id, actor);
     this.logActivity("doc", `${actor} deleted "${doc.name}" from ${doc.folder}`, null, id);
     this.touch();
     return doc;
@@ -805,6 +811,11 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
 
   async updateHandoverItem(itemId: string, patch: HandoverItemPatch, actor: string): Promise<ob.OnboardingResult<HandoverItem>> {
     return this.onboardingChange((h) => ob.patchHandoverItem(h, itemId, patch, actor));
+  }
+
+  /** Verify one uploaded file (an extra file) as a building record, or attach it to a requested document. */
+  async updateHandoverFile(docId: string, action: HandoverFileAction, actor: string): Promise<ob.OnboardingResult<HandoverFile>> {
+    return this.onboardingChange((h) => ob.patchHandoverFile(h, docId, action, actor));
   }
 
   async updateGoLiveCheck(checkId: string, patch: GoLiveCheckPatch, actor: string): Promise<ob.OnboardingResult<GoLiveCheck>> {
@@ -1204,8 +1215,15 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     if (!sent.ok) return this.failApproval(approval, actor, `Send failed: ${sent.error}`);
 
     this.recordSent(approval, draft, fromAddress, sent.messageId, actor, decision.note);
+    this.redactStoredDraft(approval.id, draft);
     this.touch();
     return this.requireApproval(approval.id);
+  }
+
+  /** Once a handover letter is decided, its stored copy keeps no portal token (staff can copy the link again). */
+  private redactStoredDraft(approvalId: string, draft: EmailDraft): void {
+    const body = ob.redactPortalLinks(draft.body);
+    if (body !== draft.body) this.sql`UPDATE approvals SET draft = ${JSON.stringify({ ...draft, body })} WHERE id = ${approvalId}`;
   }
 
   private recordSent(
@@ -1269,6 +1287,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     const reason = optionalText(note);
     this.sql`UPDATE approvals SET status = 'rejected', decided_at = ${nowIso()}, decided_by = ${actor},
       result = ${reason ? `Rejected: ${reason}` : "Rejected"} WHERE id = ${approval.id}`;
+    this.redactStoredDraft(approval.id, approval.draft);
     if (approval.threadId) this.refreshThreadStatus(approval.threadId);
     this.logActivity("approval", `${actor} rejected: ${approval.title}`, reason, approval.id);
     this.touch();
@@ -1799,7 +1818,7 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
       profile: this.profile(),
       companyName: this.companyName(),
       secret: sessionSecret(this.env),
-      log: (kind, summary, detail = null, ref = null) => this.logActivity(kind, summary, detail, ref),
+      log: (kind, summary, detail = null, ref = null, opts = {}) => this.logActivity(kind, summary, detail, ref, opts),
       contacts: () => this.contactRows(),
       saveContact: (contact) => this.saveContact(contact),
       deleteContact: (id) => {
@@ -1820,8 +1839,15 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
           provider: null,
         }).id,
       withdrawApproval: (id, actor, reason) => {
+        const approval = this.findApproval(id);
+        if (approval?.status !== "pending") return;
         this.sql`UPDATE approvals SET status = 'rejected', decided_at = ${nowIso()}, decided_by = ${actor}, result = ${reason}
           WHERE id = ${id} AND status = 'pending'`;
+        this.redactStoredDraft(id, approval.draft);
+      },
+      approvalDraft: (id) => {
+        const approval = this.findApproval(id);
+        return approval ? { subject: approval.draft.subject, body: approval.draft.body } : null;
       },
       deleteApproval: (id) => {
         this.sql`DELETE FROM approvals WHERE id = ${id}`;
@@ -1900,11 +1926,40 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
     return run;
   }
 
-  private logActivity(kind: ActivityKind, summary: string, detail: string | null = null, ref: string | null = null): void {
-    this.sql`INSERT INTO activity (id, at, kind, summary, detail, ref)
-      VALUES (${crypto.randomUUID()}, ${nowIso()}, ${kind}, ${truncate(summary, 300)},
-        ${detail ? truncate(detail, 4000) : null}, ${ref})`;
-    this.sql`DELETE FROM activity WHERE rowid <= (SELECT MAX(rowid) FROM activity) - ${ACTIVITY_RETENTION}`;
+  /**
+   * A line in the building's activity log. Lines from the outgoing manager's portal (`origin: "portal"`) have
+   * their own, smaller retention, so portal traffic can never prune staff history; `session` folds the line into
+   * the same ref's line from the last half hour (one line per upload session, not one per file).
+   */
+  private logActivity(
+    kind: ActivityKind,
+    summary: string,
+    detail: string | null = null,
+    ref: string | null = null,
+    opts: { origin?: "portal"; session?: boolean } = {},
+  ): void {
+    const origin = opts.origin === "portal" ? "portal" : null;
+    const at = nowIso();
+    if (opts.session && ref) {
+      const since = new Date(Date.now() - ob.UPLOAD_SESSION_GAP_MS).toISOString();
+      const open = this.sql<{ id: string }>`SELECT id FROM activity WHERE ref = ${ref} AND at >= ${since} ORDER BY at DESC, rowid DESC LIMIT 1`[0];
+      if (open) {
+        this.sql`UPDATE activity SET at = ${at}, kind = ${kind}, summary = ${truncate(summary, 300)}, detail = ${detail ? truncate(detail, 4000) : null}
+          WHERE id = ${open.id}`;
+        return;
+      }
+    }
+    this.sql`INSERT INTO activity (id, at, kind, summary, detail, ref, origin)
+      VALUES (${crypto.randomUUID()}, ${at}, ${kind}, ${truncate(summary, 300)},
+        ${detail ? truncate(detail, 4000) : null}, ${ref}, ${origin})`;
+    const keep = origin ? PORTAL_ACTIVITY_RETENTION : ACTIVITY_RETENTION;
+    // Only rows of the same origin are pruned, oldest first, beyond that origin's own retention.
+    this.ctx.storage.sql.exec(
+      `DELETE FROM activity WHERE origin IS ? AND rowid < (SELECT rowid FROM activity WHERE origin IS ? ORDER BY rowid DESC LIMIT 1 OFFSET ?)`,
+      origin,
+      origin,
+      keep - 1,
+    );
   }
 
   private recentActivity(limit: number): ActivityEvent[] {
@@ -1946,8 +2001,8 @@ export class PropertyAgent extends Agent<Env, PropertyState> implements ToolHost
   /** The stored profile, with the status set by an approved onboarding go-live (kept apart so re-seeding can't undo it). */
   private storedProfile(): PropertyProfile | null {
     const profile = parseJson<PropertyProfile | null>(this.getMeta("profile"), null);
-    const override = this.getMeta(ob.STATUS_OVERRIDE_KEY);
-    return profile && (override === "active" || override === "pilot" || override === "onboarding") ? { ...profile, status: override } : profile;
+    const override = ob.statusOverride(this.getMeta(ob.STATUS_OVERRIDE_KEY));
+    return profile && override ? { ...profile, status: override } : profile;
   }
 
   /** The stored profile, or a clearly-marked placeholder so mail that arrives before init() still works. */

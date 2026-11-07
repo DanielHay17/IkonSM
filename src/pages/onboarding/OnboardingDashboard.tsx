@@ -181,9 +181,15 @@ function ProjectsTable({ rows }: { rows: ProjectRow[] }) {
 }
 
 /** Buildings without a project, the ones marked "onboarding" first. */
+/** Buildings without a project (onboarding-status ones first); a building whose agent didn't answer is left out. */
 function candidatesFrom(list: OnboardingSummary[]): OnboardingSummary[] {
-  return list.filter((s) => !s.project).sort((a, b) => Number(b.buildingStatus === "onboarding") - Number(a.buildingStatus === "onboarding"));
+  return list
+    .filter((s) => !s.project && !s.unavailable)
+    .sort((a, b) => Number(b.buildingStatus === "onboarding") - Number(a.buildingStatus === "onboarding"));
 }
+
+/** Projects under way first (the one Peter is working on opens first), then fresh drafts, then closed ones. */
+const STATUS_ORDER: Record<OnboardingProject["status"], number> = { active: 0, go_live_approved: 1, draft: 2, closed: 3 };
 
 export function StartOnboardingModal({
   open,
@@ -311,7 +317,13 @@ export function OnboardingDashboard() {
   const [adding, setAdding] = useState<"company" | "manager" | null>(null);
   const tableRef = useRef<HTMLHeadingElement>(null);
 
-  const rows = useMemo(() => (list.data ?? []).filter((s): s is ProjectRow => !!s.project), [list.data]);
+  const rows = useMemo(
+    () =>
+      (list.data ?? [])
+        .filter((s): s is ProjectRow => !!s.project)
+        .sort((a, b) => STATUS_ORDER[a.project.status] - STATUS_ORDER[b.project.status] || b.project.createdAt.localeCompare(a.project.createdAt)),
+    [list.data],
+  );
   const candidates = useMemo(() => candidatesFrom(list.data ?? []), [list.data]);
   // The first project is open by default; the rest start collapsed.
   const isOpen = (row: ProjectRow, index: number) => expanded[row.propertyId] ?? index === 0;
@@ -325,10 +337,13 @@ export function OnboardingDashboard() {
   return (
     <>
       <Crumbs items={[{ label: "Portfolio", href: paths.portfolio() }, { label: "Onboarding" }]} />
-      <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 max-w-3xl flex-[1_1_20rem]">
-          <h1 className="heading-display text-[26px] leading-[1.05] text-ink sm:text-[34px]">Onboarding dashboard</h1>
-          <p className="mt-3 text-sm leading-relaxed text-ink-soft">
+      <header className="mb-7">
+        <div className="mb-3 flex justify-end">
+          <ActingAs />
+        </div>
+        <div className="min-w-0">
+          <h1 className="heading-display text-[26px] leading-[1.05] text-ink sm:text-[30px] xl:text-[34px]">Onboarding dashboard</h1>
+          <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-soft">
             Track each scheme from records transfer to operational readiness. Open a project to review its eight onboarding sections, owners and
             outstanding documents.
           </p>
@@ -337,7 +352,8 @@ export function OnboardingDashboard() {
               href="#projects-approvals"
               onClick={(e) => {
                 e.preventDefault();
-                tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+                tableRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
                 tableRef.current?.focus({ preventScroll: true });
               }}
               className={buttonClasses("primary", "md")}
@@ -371,7 +387,6 @@ export function OnboardingDashboard() {
             </li>
           </ul>
         </div>
-        <ActingAs />
       </header>
 
       {list.loading ? (
@@ -415,7 +430,7 @@ export function OnboardingDashboard() {
               Projects &amp; approvals
             </h2>
             <p className="text-xs text-muted">
-              {plural(rows.length, "project")} · {plural(candidates.length, "building")} not onboarding
+              {plural(rows.length, "project")} · {plural(candidates.length, "building")} without an onboarding project
             </p>
           </div>
           <Card>

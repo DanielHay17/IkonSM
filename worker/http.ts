@@ -58,7 +58,8 @@ export const handleError: ErrorHandler = (err, c) => {
   if (status === 503) return c.json({ error: "The service is busy, please try again" }, 503);
   if (status !== null) return c.json({ error: err.message.slice(0, MAX_ERROR_CHARS) }, status);
 
-  console.error(`Unhandled error on ${c.req.method} ${c.req.path}:`, err);
+  // A portal path carries the secure link's token: never write it to the logs.
+  console.error(`Unhandled error on ${c.req.method} ${c.req.path.replace(/(\/api\/portal\/\d{3,6}-)[^/]+/, "$1***")}:`, err);
   return c.json({ error: "Internal server error" }, 500);
 };
 

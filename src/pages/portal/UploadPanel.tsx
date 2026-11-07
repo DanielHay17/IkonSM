@@ -39,6 +39,8 @@ interface UploadPanelProps {
   snapshot: QueueSnapshot<PickedFile>;
 }
 
+const CHOOSE_FILES_ID = "portal-choose-files";
+
 export function UploadPanel({ view, targets, queue, snapshot }: UploadPanelProps) {
   const toast = useToast();
   const [reading, setReading] = useState<string | null>(null);
@@ -169,7 +171,26 @@ export function UploadPanel({ view, targets, queue, snapshot }: UploadPanelProps
     queue.clearStaged();
     setSession(EMPTY_SESSION);
     setAnnouncement("Review list cleared");
+    // The list (and its Clear button) is gone: back to the start of the upload panel.
+    window.requestAnimationFrame(() => document.getElementById(CHOOSE_FILES_ID)?.focus());
   };
+
+  // Uploads started from a requested document's own Upload button: say how each one ended.
+  const lastStatus = useRef(new Map<string, string>());
+  useEffect(() => {
+    const seen = lastStatus.current;
+    const messages: string[] = [];
+    for (const row of snapshot.rows) {
+      if (row.origin !== "item") continue;
+      const before = seen.get(row.id);
+      seen.set(row.id, row.status);
+      if (before === row.status || (before !== "queued" && before !== "uploading")) continue;
+      const title = view.items.find((i) => i.id === row.itemId)?.title ?? "the requested document";
+      if (row.status === "done") messages.push(`${title}: ${row.name} uploaded`);
+      else if (row.status === "failed") messages.push(`${title}: ${row.name} failed to upload${row.error ? `, ${row.error}` : ""}. Retry is next to the document`);
+    }
+    if (messages.length) setAnnouncement(messages.join(". "));
+  }, [snapshot.rows, view.items]);
 
   // Say when a batch finishes (screen readers otherwise only hear the list change).
   const summary = batchSummary(batch);
@@ -218,7 +239,7 @@ export function UploadPanel({ view, targets, queue, snapshot }: UploadPanelProps
                 </>
               )}
               <div className="mt-5 flex flex-wrap justify-center gap-2">
-                <Button icon="file" onClick={() => filesInput.current?.click()} disabled={busyReading || stopped}>
+                <Button id={CHOOSE_FILES_ID} icon="file" onClick={() => filesInput.current?.click()} disabled={busyReading || stopped}>
                   Choose files
                 </Button>
                 <Button icon="folder" onClick={() => folderInput.current?.click()} disabled={busyReading || stopped} className="max-sm:hidden">
@@ -234,6 +255,7 @@ export function UploadPanel({ view, targets, queue, snapshot }: UploadPanelProps
             </div>
             <details className="group mt-4 text-[13px] text-ink-soft">
               <summary className="inline-flex cursor-pointer items-center gap-1.5 font-medium text-ink select-none">
+                <Icon name="chevronRight" className="size-3.5 text-taupe transition-transform group-open:rotate-90" />
                 <Icon name="cloud" className="size-4 text-taupe" />
                 How to download a folder from SharePoint or OneDrive
               </summary>

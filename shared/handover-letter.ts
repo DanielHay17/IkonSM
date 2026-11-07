@@ -143,7 +143,7 @@ export function renderHandoverLetter(input: HandoverLetterInput): HandoverLetter
 
   const schedule = total
     ? [
-        `SCHEDULE OF DOCUMENTS: The schedule below lists ${total} ${total === 1 ? "document" : "documents"} (${required} required), grouped by the folder of our Master File Structure each will be filed in. If a required document does not exist for this scheme, please mark it "Not applicable" in the portal with a short note rather than leaving it out.`,
+        `SCHEDULE OF DOCUMENTS: The schedule below lists ${total} ${total === 1 ? "document" : "documents"} (${required} required), grouped by the folder each will be filed in at ${companyName}. If a required document does not exist for this scheme, please mark it "Not applicable" in the portal with a short note rather than leaving it out.`,
         renderHandoverSchedule(input.items, input.folders),
       ]
     : [`SCHEDULE OF DOCUMENTS: Please provide all of the strata company's records, including its plan and by-laws, insurance, meeting minutes, financial records, contracts, compliance records, correspondence and sales records.`];
@@ -157,7 +157,7 @@ export function renderHandoverLetter(input: HandoverLetterInput): HandoverLetter
     [
       `TRANSFER ARRANGEMENTS: Please upload the records through our secure handover portal:`,
       input.portalUrl,
-      `The link is for you and your team only and expires on ${expires}. Please do not forward it.`,
+      `The link expires on ${expires}. Please share it only with colleagues helping with this handover, and not outside your office.`,
     ].join("\n"),
     [
       `- SharePoint or OneDrive: select the scheme's folder, choose Download to get a single zip file, and drop the zip onto the portal page. The zip is opened in your browser and nothing is uploaded until you confirm.`,
@@ -169,7 +169,7 @@ export function renderHandoverLetter(input: HandoverLetterInput): HandoverLetter
     `FUNDS TRANSFER: Please transfer the balances of the strata company's administrative fund and reserve fund to the strata company's new trust accounts with ${companyName} at the handover date, once we have confirmed the account details with you by phone.`,
     [
       `- Account details by phone: ${incoming.name} will phone you with the account names, BSBs and account numbers. We will never ask you to pay into an account given only by email, so please do not act on bank details received by email, even if they appear to come from us. If in doubt, call ${companyName} on a number you have checked independently, not one taken from an email.`,
-      `- Final reconciliation: please send the final reconciliation of each fund at the handover date with the transfer, together with the closing bank statements and the levy register showing each lot's balance.`,
+      `- Final reconciliation: please send the final reconciliation of each fund at the handover date with the transfer, together with the closing bank statements and the contribution (levy) register showing each lot's balance.`,
       `- Confirmation: please email us a remittance advice when the funds are sent, and we will confirm by phone when they arrive.`,
     ].join("\n"),
     `Thank you for your help with the handover. If you have any questions, please contact ${incoming.name} at ${incoming.email}.`,

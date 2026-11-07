@@ -117,11 +117,41 @@ function ThreadList({ selectedId }: { selectedId: string | null }) {
   );
 }
 
+/**
+ * New emails waiting for approval that belong to no thread (the onboarding handover letter): the Inbox tab's
+ * "awaiting approval" count includes them, so they are listed here too, linked to Approvals.
+ */
+function NewEmailsAwaitingApproval() {
+  const { propertyId, refreshKey } = useBuilding();
+  const approvals = useResource(`approvals:${propertyId}:pending`, () => api.propertyApprovals(propertyId, "pending"), refreshKey);
+  const standalone = (approvals.data ?? []).filter((a) => !a.threadId);
+  if (!standalone.length) return null;
+  return (
+    <Card className="mb-4 overflow-hidden">
+      <h2 className="border-b border-line px-4 py-3 heading-display text-[13px] leading-6 text-ink">
+        New {standalone.length === 1 ? "email" : "emails"} awaiting approval ({standalone.length})
+      </h2>
+      <ul className="divide-y divide-line">
+        {standalone.map((a) => (
+          <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-[13px]">
+            <Icon name="mail" className="size-4 shrink-0 text-taupe" />
+            <span className="min-w-0 flex-1 font-medium text-ink [overflow-wrap:anywhere]">{a.title}</span>
+            <Link href={paths.approvals()} className="text-xs font-semibold link-brand">
+              Review in Approvals
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 export function InboxTab({ threadId }: { threadId: string | null }) {
   const { propertyId } = useBuilding();
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
       <div className={cx(threadId && "hidden lg:block")}>
+        <NewEmailsAwaitingApproval />
         <ThreadList selectedId={threadId} />
       </div>
       <div className={cx(!threadId && "hidden lg:block")}>

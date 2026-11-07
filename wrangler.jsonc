@@ -24,10 +24,12 @@
   // only used when LLM_PROVIDER is "workers-ai"; local dev and tests keep remoteBindings off.
   "ai": { "binding": "AI" },
   // LOGIN_LIMITER: passcode login attempts per client IP (CF-Connecting-IP), 10 a minute, to slow guessing.
-  // PORTAL_LIMITER: the outgoing manager's upload portal, per secure link and client IP, 600 a minute.
+  // PORTAL_LIMITER: the outgoing manager's upload portal, per client IP and per secure link and IP, 600 a minute.
+  // PORTAL_ACTION_LIMITER: the portal's notes, "not applicable" and submit, per secure link, 30 a minute.
   "ratelimits": [
     { "name": "LOGIN_LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
-    { "name": "PORTAL_LIMITER", "namespace_id": "1002", "simple": { "limit": 600, "period": 60 } }
+    { "name": "PORTAL_LIMITER", "namespace_id": "1002", "simple": { "limit": 600, "period": 60 } },
+    { "name": "PORTAL_ACTION_LIMITER", "namespace_id": "1003", "simple": { "limit": 30, "period": 60 } }
   ],
   "vars": {
     "APP_NAME": "Ikon Command Hub",

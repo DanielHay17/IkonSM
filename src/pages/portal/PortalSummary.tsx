@@ -32,7 +32,7 @@ export function PortalHeading({ view }: { view: PortalView }) {
         </span>
       </h1>
       <p className="mt-4 max-w-3xl text-sm leading-relaxed text-charcoal-text sm:text-[15px]">
-        Requested by {view.incomingManager.name}, {view.incomingManager.title}, IKON SM. Records due {formatPortalDate(view.recordsDueDate)}. This secure
+        Requested by {view.incomingManager.name}, {view.incomingManager.title}, {view.companyName}. Records due {formatPortalDate(view.recordsDueDate)}. This secure
         link expires {formatPortalDate(view.expiresAt)}.
       </p>
       <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-white/15 pt-5 lg:grid-cols-[minmax(0,1.6fr)_repeat(3,minmax(0,1fr))]">

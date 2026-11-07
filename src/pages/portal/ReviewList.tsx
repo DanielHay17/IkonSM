@@ -344,9 +344,12 @@ const ReviewRow = memo(function ReviewRow({
                 Empty file
               </Badge>
             ) : (
-              <Badge tone="neutral" icon="check" title="A file with this name and size is already in the handover. Tick it to upload it again.">
-                Already uploaded
-              </Badge>
+              <>
+                <Badge tone="neutral" icon="check">
+                  Already uploaded
+                </Badge>
+                <span className="mt-1 block text-xs text-muted">A file with this name and size is already in the handover. Tick it to upload it again.</span>
+              </>
             )}
           </p>
         ) : null}

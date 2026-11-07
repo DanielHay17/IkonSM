@@ -103,7 +103,6 @@ export const paths = {
     return `/onboarding/${enc(propertyId)}/${tab}${qs ? `?${qs}` : ""}`;
   },
   onboardingDirectory: (directory: OnboardingDirectory) => `/onboarding/directory/${directory}`,
-  portal: (token: string) => `/handover/${enc(token)}`,
 };
 
 function currentLocation(): string {

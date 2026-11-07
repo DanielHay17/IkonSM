@@ -64,6 +64,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
+      {/* The stack is the one live region; the toasts inside carry no role of their own, so each is read once. */}
       <div
         aria-live="polite"
         aria-relevant="additions"
@@ -72,7 +73,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            role={toast.tone === "error" ? "alert" : "status"}
             className={cx(
               "pointer-events-auto flex animate-rise-in items-start gap-3 rounded-xl border bg-surface px-4 py-3 shadow-pop",
               toast.tone === "error" ? "border-red-200" : "border-line",

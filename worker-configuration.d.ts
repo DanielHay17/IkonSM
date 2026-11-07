@@ -6,6 +6,7 @@ interface __BaseEnv_Env {
 	EMAIL: SendEmail;
 	LOGIN_LIMITER: RateLimit;
 	PORTAL_LIMITER: RateLimit;
+	PORTAL_ACTION_LIMITER: RateLimit;
 	AI: Ai;
 	APP_NAME: string;
 	COMPANY_NAME: string;

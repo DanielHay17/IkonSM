@@ -26,14 +26,37 @@ const SIGN_OFF = /\n\n((?:kind|warm|best) regards|regards|many thanks|sincerely)
 const NUMBERED = /^(\d{1,2})[.)]\s+(.*)$/;
 const BULLET = /^[-*•]\s+(.*)$/;
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+/** https links in the text (the escaped text: "&amp;" is part of a URL, a closing bracket or full stop is not). */
+const URL_IN_TEXT = /https:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/g;
+/** A line that is only a secure handover-portal link: shown as a button with the address below it. */
+const PORTAL_LINE = /^https:\/\/\S+\/handover\/\S+$/;
 
 export function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-/** Escapes, then links email addresses. */
+/** Escapes, then links web addresses and email addresses. */
 function inline(text: string): string {
-  return escapeHtml(text).replace(EMAIL, (address) => `<a href="mailto:${address}" style="color:${INK};">${address}</a>`);
+  const parts = escapeHtml(text).split(URL_IN_TEXT);
+  const urls = escapeHtml(text).match(URL_IN_TEXT) ?? [];
+  return parts
+    .map((part, i) => {
+      const linked = part.replace(EMAIL, (address) => `<a href="mailto:${address}" style="color:${INK};">${address}</a>`);
+      const url = urls[i];
+      return url ? `${linked}<a href="${url}" style="color:${INK};word-break:break-all;">${url}</a>` : linked;
+    })
+    .join("");
+}
+
+/** The handover letter's call to action: a charcoal button, with the full address underneath as a fallback. */
+function portalButton(url: string): string {
+  const href = escapeHtml(url);
+  return (
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 8px;"><tr>` +
+    `<td style="background:${INK};"><a href="${href}" style="display:inline-block;padding:12px 22px;color:#ffffff;font-family:${FONT};font-size:14px;font-weight:600;letter-spacing:0.04em;text-decoration:none;text-transform:uppercase;">Open the secure handover portal</a></td>` +
+    `</tr></table>` +
+    `<p style="margin:0 0 16px;font-size:12px;color:${TAUPE};word-break:break-all;">Or copy this address into your browser: <a href="${href}" style="color:${TAUPE};">${href}</a></p>`
+  );
 }
 
 /** A short leading label ("Insurance:", "Safety first:") reads as a heading in the paragraph. */
@@ -62,6 +85,12 @@ function blockHtml(block: string): string {
     open.list = null;
   };
   for (const line of lines) {
+    if (PORTAL_LINE.test(line)) {
+      flushParagraph();
+      flushList();
+      out.push(portalButton(line));
+      continue;
+    }
     const numbered = line.match(NUMBERED);
     const bullet = numbered ? null : line.match(BULLET);
     const kind = numbered ? "ol" : bullet ? "ul" : null;

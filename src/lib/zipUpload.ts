@@ -17,7 +17,7 @@ function serialLock() {
 
 export class ZipReadError extends Error {
   constructor(fileName: string) {
-    super(`Couldn't read ${fileName}. Is it a complete .zip download? Try downloading it again.`);
+    super(`Couldn't open ${fileName}. The zip may be incomplete or damaged: try downloading it again, or upload its files on their own.`);
     this.name = "ZipReadError";
   }
 }
@@ -28,7 +28,9 @@ export async function readZipFiles(zip: File): Promise<PickedFile[]> {
   const { ZipReader, BlobReader, BlobWriter } = await import("@zip.js/zip.js");
   // No web workers: avoids bundling a worker script; decompression still uses the browser's native streams.
   // UTF-8 names: SharePoint and macOS zips use UTF-8 even when they don't set the zip's UTF-8 flag.
-  const reader = new ZipReader(new BlobReader(zip), { filenameEncoding: "utf-8", useWebWorkers: false });
+  // Tolerant names: one odd entry ("../x.pdf", an absolute path) must not make the whole zip unreadable. Names are
+  // only shown and matched here; the server strips any path tricks before it files anything.
+  const reader = new ZipReader(new BlobReader(zip), { filenameEncoding: "utf-8", useWebWorkers: false, filenameValidation: "tolerant" });
   let entries;
   try {
     entries = await reader.getEntries();
@@ -45,6 +47,11 @@ export async function readZipFiles(zip: File): Promise<PickedFile[]> {
       load: () =>
         lock(async () => {
           if (entry.encrypted) throw new Error("This file is password-protected inside the zip. Upload it on its own instead.");
+          // Deflate64 (method 9, written by Windows for very large files) needs a WebAssembly module the portal
+          // doesn't load (its security policy allows no WebAssembly): say so plainly.
+          if ((entry as { compressionMethod?: number }).compressionMethod === 9) {
+            throw new Error("This file was zipped with a method the browser can't unpack (Deflate64). Upload it on its own instead.");
+          }
           try {
             return await entry.getData(new BlobWriter());
           } catch {

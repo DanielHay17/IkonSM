@@ -36,13 +36,13 @@ export function formatClock(iso: string | null | undefined): string {
   return date ? clockFormat.format(date) : "--:--:--";
 }
 
-/** "Today, 7:02 am" / "3 Nov, 7:02 am" / "3 Nov 2025, 7:02 am" */
-export function formatDateTime(iso: string | null | undefined): string {
+/** "Today, 7:02 am" / "3 Nov, 7:02 am" / "3 Nov 2025, 7:02 am"; `midSentence` gives "today, 7:02 am". */
+export function formatDateTime(iso: string | null | undefined, midSentence = false): string {
   const date = toDate(iso);
   if (!date) return "";
   const now = new Date();
   const time = timeFormat.format(date);
-  if (sameDay(date, now)) return `Today, ${time}`;
+  if (sameDay(date, now)) return `${midSentence ? "today" : "Today"}, ${time}`;
   const day = date.getFullYear() === now.getFullYear() ? dayFormat.format(date) : dayYearFormat.format(date);
   return `${day}, ${time}`;
 }
@@ -66,6 +66,22 @@ export function timeAgo(iso: string | null | undefined, now: number = Date.now()
   const days = Math.round(hours / 24);
   if (days < 7) return `${days}d ago`;
   return formatDate(iso);
+}
+
+/** "just now", "5 minutes ago", "2 hours ago", "3 days ago", then a date: for running text. */
+export function timeAgoLong(iso: string | null | undefined, now: number = Date.now()): string {
+  const date = toDate(iso);
+  if (!date) return "";
+  const seconds = Math.max(0, Math.round((now - date.getTime()) / 1000));
+  if (seconds < 45) return "just now";
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"} ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return unit(minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return unit(hours, "hour");
+  const days = Math.round(hours / 24);
+  if (days < 7) return unit(days, "day");
+  return `on ${formatDate(iso)}`;
 }
 
 /** "12s", "3m 04s", "1h 02m" */

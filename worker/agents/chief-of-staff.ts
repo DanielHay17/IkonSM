@@ -38,7 +38,7 @@ import { engineAvailable, withAiChoice, type StoredAiChoice } from "../ai/switch
 import { chiefOfStaffSystemPrompt } from "../ai/prompts";
 import { answerWithSources, lightModeFooter, PORTFOLIO_LIGHT_MODE, workersAiText } from "../ai/workers-ai";
 import { parseInbound } from "../email/inbound";
-import { attempt, briefLine, OnboardingError, type OnboardingResult } from "./onboarding";
+import { attempt, briefLine, OnboardingError, submittedPackToVerify, type OnboardingResult } from "./onboarding";
 import { DIRECTORY_COMPANIES, DIRECTORY_MANAGERS } from "../seed/onboarding-demo";
 import {
   PORTFOLIO,
@@ -408,7 +408,7 @@ function onboardingSection(snaps: PropertySnapshot[]): string | null {
   const shown = missing.slice(0, 3).map((s) => `- ${propertyName(s.profile)}`);
   const more = missing.length - shown.length;
   return [
-    `Onboarding - no building-specific documents yet, only Ikon policies (${missing.length})`,
+    `Not yet set up - no building-specific documents yet, only Ikon policies (${missing.length})`,
     ...shown,
     ...(more > 0 ? [`- and ${plural(more, "other scheme")}`] : []),
   ].join("\n");
@@ -423,9 +423,10 @@ function onboardingProjectsSection(snaps: PropertySnapshot[]): string | null {
   return section("Onboarding", lines);
 }
 
-/** Handover packs the outgoing manager has submitted (they are waiting for staff to verify). */
+/** A handover pack the outgoing manager has submitted, while documents from it still wait for staff to verify. */
 function submittedPacks(s: PropertySnapshot) {
-  return (s.onboarding?.invites ?? []).filter((i) => i.status === "submitted" && i.submittedAt);
+  const invite = s.onboarding ? submittedPackToVerify(s.onboarding) : null;
+  return invite && s.onboarding ? [{ invite, awaiting: s.onboarding.counts.handoverAwaitingVerification }] : [];
 }
 
 function recordsSection(snaps: PropertySnapshot[]): string | null {
@@ -482,9 +483,9 @@ function briefHighlights(snaps: PropertySnapshot[]): PortfolioBrief["highlights"
     p2Threads(s).map((t) => ({ propertyId: s.entry.id, label: label(s, threadSummary(t)), priority: "P2" as Priority })),
   );
   const handovers = snaps.flatMap((s) =>
-    submittedPacks(s).map((i) => ({
+    submittedPacks(s).map(({ invite: i, awaiting }) => ({
       propertyId: s.entry.id,
-      label: label(s, `handover pack submitted by ${i.outgoingManager.name} (${i.outgoingManager.company}): verify the documents`),
+      label: label(s, `handover pack submitted by ${i.outgoingManager.name} (${i.outgoingManager.company}): ${plural(awaiting, "document")} to verify`),
       priority: null,
     })),
   );
@@ -807,10 +808,10 @@ export class ChiefOfStaffAgent extends Agent<Env, CosState> {
           const agent = await this.property(entry.id);
           const [profile, project] = await Promise.all([agent.getProfile(), agent.getOnboardingSummary()]);
           const p = profile ?? fallback;
-          return { propertyId: entry.id, spNumber: p.spNumber, street: p.street, suburb: p.suburb, buildingStatus: p.status, project };
+          return { propertyId: entry.id, spNumber: p.spNumber, street: p.street, suburb: p.suburb, buildingStatus: p.status, project, unavailable: false };
         } catch (err) {
           console.error(`chief-of-staff: ${entry.id} did not respond for onboarding`, err);
-          return { propertyId: entry.id, spNumber: entry.spNumber, street: entry.street, suburb: entry.suburb, buildingStatus: entry.status, project: null };
+          return { propertyId: entry.id, spNumber: entry.spNumber, street: entry.street, suburb: entry.suburb, buildingStatus: entry.status, project: null, unavailable: true };
         }
       }),
     );
@@ -1480,7 +1481,7 @@ export class ChiefOfStaffAgent extends Agent<Env, CosState> {
         parts.push(onboardingProjectsSection(snaps) ?? "Onboarding\n- No onboarding projects in progress.");
       }
       if (/onboard|document|docs\b|missing|set ?up/.test(lower)) {
-        parts.push(onboardingSection(snaps) ?? "Onboarding\n- Every building has documents loaded.");
+        parts.push(onboardingSection(snaps) ?? "Not yet set up\n- Every building has documents loaded.");
       }
       if (parts.length === 0) parts.push(this.matchingThreadsSection(snaps, question));
       if (parts.every((p) => !p)) {

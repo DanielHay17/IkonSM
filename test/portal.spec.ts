@@ -16,6 +16,7 @@ import { call, callJson, loginAndSeed, ORIGIN, tag } from "./helpers";
 import {
   activateInvite,
   agentExec,
+  createProject,
   agentRows,
   getProject,
   openHandover,
@@ -175,10 +176,41 @@ describe("portal access", () => {
     const res = await app.fetch(new Request(`${ORIGIN}/api/portal/${token}`, { headers: { "CF-Connecting-IP": "203.0.113.9" } }), { ...env, PORTAL_LIMITER: limiter } as Env, ctx);
     await waitOnExecutionContext(ctx);
     expect(res.status).toBe(429);
-    expect(keys).toEqual([`portal:${token}:203.0.113.9`]);
-    // The binding is configured, and allows ordinary use.
+    // Per client IP first, before the token is even looked at (made-up tokens are slowed too).
+    expect(keys).toEqual(["portal-ip:203.0.113.9"]);
+    const probe = await app.fetch(new Request(`${ORIGIN}/api/portal/64324-${"x".repeat(43)}`, { headers: { "CF-Connecting-IP": "203.0.113.9" } }), { ...env, PORTAL_LIMITER: limiter } as Env, ctx);
+    expect(probe.status).toBe(429);
+
+    // Then per link and IP.
+    const seen: string[] = [];
+    const perLink = { limit: async ({ key }: { key: string }) => (seen.push(key), { success: key.startsWith("portal-ip:") }) } as unknown as RateLimit;
+    const second = await app.fetch(new Request(`${ORIGIN}/api/portal/${token}`, { headers: { "CF-Connecting-IP": "203.0.113.9" } }), { ...env, PORTAL_LIMITER: perLink } as Env, ctx);
+    expect(second.status).toBe(429);
+    expect(seen).toEqual(["portal-ip:203.0.113.9", `portal:${token}:203.0.113.9`]);
+    await waitOnExecutionContext(ctx);
+    // The bindings are configured, and allow ordinary use.
     expect(typeof env.PORTAL_LIMITER?.limit).toBe("function");
+    expect(typeof env.PORTAL_ACTION_LIMITER?.limit).toBe("function");
     expect((await portal(token)).status).toBe(200);
+  });
+
+  it("limits notes, not-applicable and submit tightly per link (PORTAL_ACTION_LIMITER)", async () => {
+    const cookie = await loginAndSeed("Action Limiter Tester");
+    const id = "sp-64324";
+    const token = tokenOf((await activateInvite(cookie, id, (await prepareInvite(cookie, id)).id)).url);
+    const view = await portalJson<PortalView>(token);
+    const keys: string[] = [];
+    const limiter = { limit: async ({ key }: { key: string }) => (keys.push(key), { success: false }) } as unknown as RateLimit;
+    const post = (path: string, body: unknown) =>
+      app.fetch(
+        new Request(`${ORIGIN}/api/portal/${token}${path}`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+        { ...env, PORTAL_ACTION_LIMITER: limiter } as Env,
+        createExecutionContext(),
+      );
+    expect((await post(`/items/${view.items[0]!.id}/note`, { note: "x" })).status).toBe(429);
+    expect((await post(`/items/${view.items[0]!.id}/not-applicable`, { note: "x" })).status).toBe(429);
+    expect((await post("/submit", {})).status).toBe(429);
+    expect(keys).toEqual([`portal-action:${token}`, `portal-action:${token}`, `portal-action:${token}`]);
   });
 });
 
@@ -219,7 +251,7 @@ describe("portal uploads", () => {
     expect(doc.r2Key.startsWith(`${id}/${item.folder}/`)).toBe(true);
     expect(await (await env.VAULT.get(doc.r2Key))!.text()).toBe(`Policy schedule ${marker}`);
     const activity = await callJson<ActivityEvent[]>(`/api/properties/${id}/activity`, { cookie });
-    expect(activity.some((a) => a.summary === `Outgoing manager Sam Outgoing uploaded "Policy schedule.txt" to ${item.folder} (awaiting verification)`)).toBe(true);
+    expect(activity.some((a) => a.summary === `Outgoing manager Sam Outgoing uploaded "Policy schedule.txt" for ${item.title} (awaiting verification)`)).toBe(true);
   });
 
   it("matches an upload without an item automatically, or files it as an extra file", async () => {
@@ -252,7 +284,15 @@ describe("portal uploads", () => {
     const staff = await getProject(cookie, id);
     expect(staff.extraFiles.map((f) => f.name)).toContain(`${template.keywords[0]} copy.txt`);
     expect(staff.counts.extraFiles).toBe(staff.extraFiles.length);
-    expect(staff.events.find((e) => e.kind === "upload")!.summary).toBe(`Sam Outgoing uploaded "${template.keywords[0]} copy.txt" to 05 Maintenance & Contractors (extra file)`);
+    // One upload session: one event (and one activity line) for the three files, naming the latest.
+    const uploads = staff.events.filter((e) => e.kind === "upload");
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0]).toMatchObject({ origin: "portal", summary: "Sam Outgoing uploaded 3 files" });
+    expect(uploads[0]!.detail).toBe(`Latest: "${template.keywords[0]} copy.txt" to 05 Maintenance & Contractors (extra file)`);
+    const activity = await callJson<ActivityEvent[]>(`/api/properties/${id}/activity`, { cookie });
+    expect(activity.filter((a) => a.summary.startsWith("Outgoing manager Sam Outgoing uploaded")).map((a) => a.summary)).toEqual([
+      "Outgoing manager Sam Outgoing uploaded 3 files (awaiting verification)",
+    ]);
   });
 
   it("rejects junk files, empty or oversize files, bad folders, unknown items and over-long paths", async () => {
@@ -269,7 +309,6 @@ describe("portal uploads", () => {
     expect((await portalUpload(token, textFile("a.txt", "x"), { folder: "09 Elsewhere" })).status).toBe(400);
     expect((await portalUpload(token, textFile("a.txt", "x"), { itemId: "no-such-item" })).status).toBe(400);
     expect((await portalUpload(token, textFile("a.txt", "x"), { itemId: "bad id!" })).status).toBe(400);
-    expect((await portalUpload(token, textFile("a.txt", "x"), { relativePath: `${"a/".repeat(250)}a.txt` })).status).toBe(400);
     const noFile = new FormData();
     noFile.set("folder", "02 Insurance");
     expect((await portal(token, "/upload", { body: noFile })).status).toBe(400);
@@ -289,6 +328,14 @@ describe("portal uploads", () => {
     expect(sanitiseRelativePath("a\u0000b/\u001fc.txt")).toBe("ab/c.txt");
     expect(sanitiseRelativePath("//")).toBeNull();
     expect(sanitiseRelativePath(null)).toBeNull();
+    // Bidi overrides and zero-width characters can't disguise a path.
+    expect(sanitiseRelativePath("Levies/Levy notice \u202Efdp.exe")).toBe("Levies/Levy notice fdp.exe");
+    expect(sanitiseRelativePath("Insur\u200Bance/\uFEFFcert.pdf")).toBe("Insurance/cert.pdf");
+    // Over 500 characters: the end is kept (it names the file), not refused.
+    const long = sanitiseRelativePath(`${"Very long folder name/".repeat(30)}deep file.pdf`)!;
+    expect(long.length).toBe(500);
+    expect(long.startsWith("…")).toBe(true);
+    expect(long.endsWith("/deep file.pdf")).toBe(true);
 
     const cookie = await loginAndSeed("Path Tester");
     const id = "sp-83114";
@@ -302,6 +349,30 @@ describe("portal uploads", () => {
     const doc = (await docs(cookie, id)).find((d) => d.id === file.docId)!;
     expect(doc.r2Key.startsWith(`${id}/${item.folder}/`)).toBe(true);
     expect(doc.r2Key).not.toContain("..");
+
+    // A zip entry with a very long path uploads (the path is shortened), rather than failing for good.
+    const deep = await portalUpload(token, textFile("deep file.txt", "deep"), { relativePath: `${"Very long folder name/".repeat(30)}deep file.txt` });
+    expect(deep.status).toBe(201);
+  });
+
+  it("strips bidi-override and zero-width characters from file names and stores the type the extension implies", async () => {
+    const cookie = await loginAndSeed("Spoof Tester");
+    // Shares sp-24594 with the rejection test (storage persists within a file): a fresh link on its project.
+    const id = "sp-24594";
+    if (!(await getProject(cookie, id).catch(() => null))) await createProject(cookie, id);
+    const token = tokenOf((await activateInvite(cookie, id, (await prepareInvite(cookie, id)).id)).url);
+    const spoof = new File([new Uint8Array([0x4d, 0x5a, 0x90, 0x00])], "Levy notice \u202Efdp.exe", { type: "application/pdf" });
+    const result = await portalUploadOk(token, spoof, { itemId: "none", folder: "04 Financials & Levies" });
+    expect(result.file.name).toBe("Levy notice fdp.exe");
+    const zw = await portalUploadOk(token, textFile("Insur\u200Bance certificate.txt", "x"), { itemId: "none", folder: "02 Insurance" });
+    expect(zw.file.name).toBe("Insurance certificate.txt");
+    const stored = (await docs(cookie, id)).find((d) => d.name === "Levy notice fdp.exe")!;
+    // The claimed "application/pdf" is ignored: an .exe is stored (and downloaded) as a plain binary.
+    expect(stored.mimeType).toBe("application/octet-stream");
+    // Notes typed in the portal lose them too.
+    const view = await portalJson<PortalView>(token);
+    const noted = await portalJson<PortalItem>(token, `/items/${view.items[0]!.id}/note`, { json: { note: "Call me \u202Eon 0400\u200B 000 000" } });
+    expect(noted.supplierNote).toBe("Call me on 0400 000 000");
   });
 
   it("keeps handover uploads out of the agents' search until staff verify them, then promotes them", async () => {
@@ -404,8 +475,14 @@ describe("portal actions", () => {
     expect(staff.handoverItems.find((i) => i.id === required.id)).toMatchObject({ status: "awaiting_verification", supplierNote: "The scheme has no lift" });
     expect(staff.events[0]).toMatchObject({ kind: "handover", actor: "Sam Outgoing", detail: "The scheme has no lift" });
     expect(staff.events[0]!.summary).toContain("needs staff verification");
-    // Staff agree: not applicable, and no longer a go-live blocker.
-    await callJson(`${base(id)}/handover/${required.id}`, { cookie, json: { status: "not_applicable" } });
+    expect(staff.handoverItems.find((i) => i.id === required.id)!.notApplicableClaimed).toBe(true);
+    // Staff can't "verify" a document that was never supplied: they accept it as not applicable (or send it back).
+    const refused = await call(`${base(id)}/handover/${required.id}`, { cookie, json: { status: "verified" } });
+    expect(refused.status).toBe(409);
+    expect((await refused.json<{ error: string }>()).error).toMatch(/Accept it as not applicable, or send it back/);
+    const accepted = await callJson(`${base(id)}/handover/${required.id}`, { cookie, json: { status: "not_applicable", reviewNote: "Agreed: no lift" } });
+    expect(accepted).toMatchObject({ status: "not_applicable", notApplicableClaimed: false });
+    expect((await getProject(cookie, id)).events[0]!.summary).toBe(`Action Tester accepted that "${required.title}" is not applicable`);
 
     const optional = detail.handoverItems.find((i) => !i.required);
     if (optional) {
@@ -418,9 +495,14 @@ describe("portal actions", () => {
     expect(noted.supplierNote).toBe("Coming next week from the archive");
     expect((await getProject(cookie, id)).events[0]!.summary).toBe(`Sam Outgoing added a note to "${other.title}"`);
 
-    // A verified item can't be waived from the portal; a rejected one shows Ikon's note.
-    await callJson(`${base(id)}/handover/${other.id}`, { cookie, json: { status: "verified" } });
+    // The same note again records nothing new.
+    await portalJson<PortalItem>(token, `/items/${other.id}/note`, { json: { note: "Coming next week from the archive" } });
+    expect((await getProject(cookie, id)).events.filter((e) => e.summary === `Sam Outgoing added a note to "${other.title}"`)).toHaveLength(1);
+
+    // A verified item can't be waived or re-noted from the portal; a rejected one shows Ikon's note.
+    await callJson(`${base(id)}/handover/${other.id}`, { cookie, json: { status: "verified", reviewNote: "Received on paper" } });
     expect((await portal(token, `/items/${other.id}/not-applicable`, { json: { note: "x" } })).status).toBe(409);
+    expect((await portal(token, `/items/${other.id}/note`, { json: { note: "Changed my mind" } })).status).toBe(409);
     await callJson(`${base(id)}/handover/${other.id}`, { cookie, json: { status: "rejected", reviewNote: "Please send the signed copy" } });
     const view = await portalJson<PortalView>(token);
     expect(view.items.find((i) => i.id === other.id)).toMatchObject({ status: "rejected", reviewNote: "Please send the signed copy" });
@@ -462,18 +544,26 @@ describe("portal actions", () => {
 // ===========================================================================
 
 describe("portal state across links", () => {
-  it("a new link shows what was supplied through the earlier one; only staff can download the files", async () => {
+  it("a new link shows the shared status but not the earlier link's files or notes; only staff can download the files", async () => {
     const cookie = await loginAndSeed("Reissue Tester");
     const id = "sp-87192";
     const { token, detail } = await openHandover(cookie, id);
     const item = detail.handoverItems[0]!;
     await portalUploadOk(token, textFile("By-laws.txt", "Schedule 1 and Schedule 2 by-laws"), { itemId: item.id });
+    await portalUploadOk(token, textFile("Private extra.txt", "x"), { itemId: "none", folder: "07 Correspondence" });
+    await portalJson(token, `/items/${item.id}/note`, { json: { note: "Call me on 0400 000 000" } });
 
-    const second = await prepareInvite(cookie, id);
+    // The first link may have gone to the wrong person: the next holder sees statuses only.
+    const second = await prepareInvite(cookie, id, { outgoingManager: { company: "Different Strata Pty Ltd", name: "Bea Different", email: "bea@different.example.com", phone: null } });
     const { url } = await activateInvite(cookie, id, second.id);
     expect((await portal(token)).status).toBe(410);
     const view = await portalJson<PortalView>(tokenOf(url));
-    expect(view.items.find((i) => i.id === item.id)).toMatchObject({ status: "awaiting_verification", files: [{ name: "By-laws.txt" }] });
+    expect(view.items.find((i) => i.id === item.id)).toMatchObject({ status: "awaiting_verification", files: [], supplierNote: null });
+    expect(view.extraFiles).toEqual([]);
+    // Staff see where each file came from (the withdrawn link's invitation).
+    const staffItem = (await getProject(cookie, id)).handoverItems.find((i) => i.id === item.id)!;
+    expect(staffItem.files[0]!.inviteId).not.toBe(second.id);
+    expect(staffItem.supplierNoteInviteId).toBe(staffItem.files[0]!.inviteId);
 
     // No download route on the portal; staff download it from the Files tab.
     expect((await portal(tokenOf(url), `/files/${item.id}`)).status).toBe(404);
@@ -494,7 +584,7 @@ describe("portal state across links", () => {
     expect(items.length).toBeGreaterThanOrEqual(3);
     for (const item of items) await callJson(`${base(id)}/handover/${item.id}`, { cookie, json: { status: "awaiting_supply" } });
     await portalUploadOk(link, textFile("Supplied.txt", "supplied"), { itemId: items[0]!.id });
-    await callJson(`${base(id)}/handover/${items[1]!.id}`, { cookie, json: { status: "verified" } });
+    await callJson(`${base(id)}/handover/${items[1]!.id}`, { cookie, json: { status: "verified", reviewNote: "Received on paper" } });
     await callJson(`${base(id)}/handover/${items[2]!.id}`, { cookie, json: { status: "not_applicable" } });
     const view = await portalJson<PortalView>(link);
     expect(view.progress).toEqual({ total: items.length, supplied: 1, verified: 1, notApplicable: 1, outstanding: items.length - 3 });

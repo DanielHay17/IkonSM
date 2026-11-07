@@ -40,14 +40,20 @@ import { ApprovalsTab } from "./ApprovalsTab";
 import { MapTab } from "./MapTab";
 import { ActivityTab } from "./ActivityTab";
 
-type Overlay = { kind: "task"; value: OnboardingTask } | { kind: "item"; value: HandoverItem } | { kind: "check"; value: GoLiveCheck };
+type Overlay =
+  | { kind: "task"; value: OnboardingTask }
+  | { kind: "item"; value: HandoverItem }
+  | { kind: "check"; value: GoLiveCheck }
+  /** A file action in flight (nothing to lay over: the project is refetched when it is saved). */
+  | { kind: "file" };
 
 const REFRESH_DEBOUNCE_MS = 700;
 
 function overlay(detail: OnboardingProjectDetail, change: Overlay): OnboardingProjectDetail {
   if (change.kind === "task") return withTask(detail, change.value);
   if (change.kind === "item") return withHandoverItem(detail, change.value);
-  return withGoLiveCheck(detail, change.value);
+  if (change.kind === "check") return withGoLiveCheck(detail, change.value);
+  return detail;
 }
 
 function tabItems(propertyId: string, project: OnboardingProjectDetail): TabItem<OnboardingTab>[] {
@@ -55,7 +61,14 @@ function tabItems(propertyId: string, project: OnboardingProjectDetail): TabItem
   const openTasks = project.counts.tasks - project.counts.tasksDone - project.counts.tasksExcluded;
   return [
     { key: "overview", label: "Overview", icon: "grid", href: href("overview") },
-    { key: "tasks", label: "Tasks", icon: "check", href: href("tasks"), adornment: <CountBubble count={openTasks} label="open" /> },
+    {
+      key: "tasks",
+      label: "Tasks",
+      icon: "check",
+      href: href("tasks"),
+      // All open tasks; the blockers line counts only those before go-live (not the closeout ones).
+      adornment: <CountBubble count={openTasks} label="open, including closeout tasks" />,
+    },
     {
       key: "handover",
       label: "Handover",
@@ -71,6 +84,7 @@ function tabItems(propertyId: string, project: OnboardingProjectDetail): TabItem
       adornment: (
         <span className="text-[11px] font-medium tracking-normal text-muted normal-case tabular-nums">
           {project.counts.goLiveVerified + project.counts.goLiveNotApplicable}/{project.counts.goLiveChecks}
+          <span className="sr-only"> checks done</span>
         </span>
       ),
     },
@@ -166,6 +180,7 @@ function NoProject({ propertyId }: { propertyId: string }) {
   return (
     <>
       <Crumbs items={[{ label: "Portfolio", href: paths.portfolio() }, { label: "Onboarding", href: paths.onboarding() }, { label: `SP ${profile.spNumber}` }]} />
+      <h1 className="heading-display mb-4 text-[24px] leading-[1.1] text-ink sm:text-[30px]">SP {profile.spNumber} onboarding</h1>
       <Card>
         <EmptyState
           icon="clipboard"
@@ -229,7 +244,7 @@ export function ProjectPage({ propertyId, tab }: { propertyId: string; tab: Onbo
 
   /** Shows `change` at once, saves it, then applies the server's copy, or drops the change and says why. */
   const save = useCallback(
-    async <T extends Overlay>(key: string, change: T, call: () => Promise<T["value"]>, failure: string, quiet = false): Promise<boolean> => {
+    async <T extends Exclude<Overlay, { kind: "file" }>>(key: string, change: T, call: () => Promise<T["value"]>, failure: string, quiet = false): Promise<boolean> => {
       invalidate();
       setPending((map) => new Map(map).set(key, change));
       let ok = false;
@@ -237,7 +252,7 @@ export function ProjectPage({ propertyId, tab }: { propertyId: string; tab: Onbo
         const saved = await call();
         // Responses to loads already in flight may predate this change: ignore them.
         invalidate();
-        mutate((detail) => (detail ? overlay(detail, { kind: change.kind, value: saved } as Overlay) : detail!));
+        mutate((detail) => (detail ? overlay(detail, { ...change, value: saved } as Overlay) : detail!));
         ok = true;
       } catch (err) {
         if (!quiet) toast.error(failure, err);
@@ -279,7 +294,9 @@ export function ProjectPage({ propertyId, tab }: { propertyId: string; tab: Onbo
       patchItem: (item, patch: HandoverItemPatch, options) => {
         const next: HandoverItem = {
           ...item,
-          status: patch.status,
+          // Reopening a document that still has files sends it back for checking (as the server does).
+          status: patch.status === "awaiting_supply" && item.files.length > 0 ? "awaiting_verification" : patch.status,
+          notApplicableClaimed: false,
           reviewNote: patch.reviewNote !== undefined ? patch.reviewNote : item.reviewNote,
           verifiedBy: patch.status === "verified" ? actingName : null,
           verifiedAt: patch.status === "verified" ? now() : null,
@@ -303,6 +320,26 @@ export function ProjectPage({ propertyId, tab }: { propertyId: string; tab: Onbo
         };
         return save(`check:${check.id}`, { kind: "check", value: next }, () => onboardingApi.updateGoLiveCheck(propertyId, check.id, patch), `Couldn't update "${check.title}"`);
       },
+      patchFile: async (file, action, options) => {
+        const key = `file:${file.docId}`;
+        setPending((map) => new Map(map).set(key, { kind: "file" }));
+        try {
+          await onboardingApi.updateHandoverFile(propertyId, file.docId, action);
+          invalidate();
+          await reload();
+          return true;
+        } catch (err) {
+          if (!options?.quiet) toast.error(action.action === "verify" ? `Couldn't verify "${file.name}"` : `Couldn't attach "${file.name}"`, err);
+          return false;
+        } finally {
+          setPending((map) => {
+            const next = new Map(map);
+            next.delete(key);
+            return next;
+          });
+        }
+      },
+      readOnly: project.status === "closed",
       apply: (update) => {
         invalidate();
         mutate((detail) => (detail ? update(detail) : detail!));
@@ -310,7 +347,7 @@ export function ProjectPage({ propertyId, tab }: { propertyId: string; tab: Onbo
       },
       refresh,
     };
-  }, [project, propertyId, profile, actingName, acting, pending, save, invalidate, mutate, refresh]);
+  }, [project, propertyId, profile, actingName, acting, pending, save, invalidate, mutate, refresh, reload, toast]);
 
   useEffect(() => {
     if (project) document.title = `${project.name} · Onboarding · IKON SM Command Hub`;
@@ -336,6 +373,12 @@ export function ProjectPage({ propertyId, tab }: { propertyId: string; tab: Onbo
       <div className="mb-6">
         <TabNav label="Onboarding project" items={tabItems(propertyId, context.project)} active={tab} />
       </div>
+      {context.readOnly ? (
+        <p role="note" className="mb-5 flex items-start gap-2 border border-line bg-subtle px-4 py-3 text-[13px] text-ink-soft">
+          <Icon name="lock" className="mt-0.5 size-4 shrink-0 text-taupe" />
+          This project is closed out. It is kept as read-only history: tasks, documents, checks and links can't be changed.
+        </p>
+      ) : null}
       {TABS[tab]()}
     </ProjectContext.Provider>
   );

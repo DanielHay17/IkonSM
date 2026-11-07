@@ -103,12 +103,15 @@ export async function fileHandoverDocument(
   });
   if (!plan.ok) return plan;
 
-  const mimeType = guessMime(name, input.mimeType);
-  const extracted = await extractText(input.bytes, mimeType, name);
-  if (extracted.error) console.warn(`Text extraction failed for handover upload "${name}" (${extracted.method}): ${extracted.error}`);
+  // The type comes from the file's extension, never from what the uploader's browser claims: an ".exe" sent as
+  // "application/pdf" is stored (and later downloaded) as application/octet-stream.
+  const mimeType = guessMime(name, null);
   const r2Key = r2KeyFor(propertyId, plan.value.folder, name);
+  // Stored first, so text extraction may consume the bytes (no extra copy of a large PDF in memory).
   await env.VAULT.put(r2Key, input.bytes, { httpMetadata: { contentType: mimeType }, customMetadata: { propertyId, source: "handover" } });
   try {
+    const extracted = await extractText(input.bytes, mimeType, name, { consume: true });
+    if (extracted.error) console.warn(`Text extraction failed for handover upload "${name}" (${extracted.method}): ${extracted.error}`);
     const result = await agent.portalCommitUpload(token, plan.value, { mimeType, r2Key }, extracted.text, extracted.error != null);
     if (!result.ok) await deleteVaultObject(env, r2Key);
     return result;

@@ -40,13 +40,17 @@ const TEXT_EXTENSIONS = new Set(["txt", "text", "md", "markdown", "csv", "tsv", 
 /** text/* types that are markup or binary-ish rather than readable text. */
 const NON_TEXT_TEXT_TYPES = new Set(["text/rtf"]);
 
-export async function extractText(bytes: Uint8Array, mimeType: string, filename: string): Promise<ExtractResult> {
+/**
+ * `consume`: the caller no longer needs `bytes` (they are already stored), so a PDF parser may take them over
+ * instead of working on a copy; this keeps peak memory near one copy of a large upload.
+ */
+export async function extractText(bytes: Uint8Array, mimeType: string, filename: string, opts: { consume?: boolean } = {}): Promise<ExtractResult> {
   let method: ExtractMethod = "none";
   try {
     if (!bytes?.byteLength) return { text: null, method, error: null };
     method = detectMethod(bytes, mimeType, filename);
     if (method === "none") return { text: null, method, error: null };
-    const raw = await EXTRACTORS[method](bytes, baseType(mimeType), extensionOf(filename));
+    const raw = method === "pdf" && opts.consume ? await extractPdfConsuming(bytes) : await EXTRACTORS[method](bytes, baseType(mimeType), extensionOf(filename));
     return { text: finalise(raw), method, error: null };
   } catch (err) {
     return { text: null, method, error: describeError(err) };
@@ -94,11 +98,15 @@ const EXTRACTORS: Record<Exclude<ExtractMethod, "none">, Extractor> = {
   text: async (bytes, type, ext) => (EMAIL_TYPES.has(type) || ext === "eml" ? extractEmail(bytes) : readableText(bytes)),
 };
 
+function extractPdfConsuming(bytes: Uint8Array): Promise<string> {
+  return withTimeout(extractPdf(bytes, true), PDF_TIMEOUT_MS, "PDF text extraction timed out");
+}
+
 /** pdf.js (unpdf's serverless build) is loaded on first use so it does not slow every agent start. */
-async function extractPdf(bytes: Uint8Array): Promise<string> {
+async function extractPdf(bytes: Uint8Array, consume = false): Promise<string> {
   const { extractText: extractPdfText, getDocumentProxy } = await import("unpdf");
-  // pdf.js may detach the buffer it is given; hand it a copy so the caller's bytes stay usable.
-  const pdf = await getDocumentProxy(bytes.slice(), { verbosity: 0, maxImageSize: PDF_MAX_IMAGE_PIXELS });
+  // pdf.js may detach the buffer it is given; unless the caller is done with the bytes, hand it a copy.
+  const pdf = await getDocumentProxy(consume ? bytes : bytes.slice(), { verbosity: 0, maxImageSize: PDF_MAX_IMAGE_PIXELS });
   try {
     if (pdf.numPages > MAX_PDF_PAGES) {
       throw new Error(`PDF has ${pdf.numPages} pages; only documents up to ${MAX_PDF_PAGES} pages are indexed`);

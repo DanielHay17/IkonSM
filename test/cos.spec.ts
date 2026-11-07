@@ -50,7 +50,7 @@ describe("Chief of Staff", () => {
     expect(brief.text).toMatch(/Statutory deadlines\n(- .*\n)*- SP 43464 .*s110: within 14 days of fee paid/);
     expect(brief.text).toMatch(/Rules-based summary \(AI offline\)\.$/);
     // Onboarding gaps: schemes with only Ikon policy documents.
-    expect(brief.text).toMatch(/Onboarding - no building-specific documents yet, only Ikon policies \(15\)/);
+    expect(brief.text).toMatch(/Not yet set up - no building-specific documents yet, only Ikon policies \(15\)/);
 
     const p1Highlights = brief.highlights.filter((h) => h.priority === "P1");
     expect(p1Highlights.length).toBeGreaterThan(0);

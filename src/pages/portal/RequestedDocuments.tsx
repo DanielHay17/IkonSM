@@ -117,7 +117,7 @@ export function RequestedDocuments({ token, view, targets, queue, snapshot, onIt
     <section aria-labelledby="portal-requested-title" className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <h2 id="portal-requested-title" className="heading-display text-[20px] leading-tight text-ink sm:text-[24px]">
+          <h2 id="portal-requested-title" tabIndex={-1} className="heading-display text-[20px] leading-tight text-ink focus:outline-none sm:text-[24px]">
             Requested documents
           </h2>
           <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-muted">
@@ -367,12 +367,17 @@ function NoteForm({
   const [text, setText] = useState(mode === "note" ? (item.supplierNote ?? "") : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const fieldId = useId();
+  const errorId = `${fieldId}-error`;
+  // Ikon checks the reason unless the document is optional, untouched and not sent back (the server's rule too).
+  const checked = item.required || item.status === "rejected" || item.files.length > 0;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const value = text.trim();
     if (!value) {
       setError(new Error(mode === "not_applicable" ? "Please say why this document doesn't apply." : "Please write a note."));
+      document.getElementById(fieldId)?.focus();
       return;
     }
     setBusy(true);
@@ -394,10 +399,13 @@ function NoteForm({
         <p className="text-sm leading-relaxed text-ink-soft">
           {item.required
             ? "This is a required document, so Ikon will check your reason before treating it as not applicable."
-            : "This document is optional. Tell Ikon why it doesn't apply to this scheme."}
+            : checked
+              ? "Ikon will check your reason before treating this document as not applicable."
+              : "This document is optional. Tell Ikon why it doesn't apply to this scheme."}
         </p>
       ) : null}
       <TextAreaField
+        id={fieldId}
         label={mode === "not_applicable" ? "Why doesn't this apply?" : "Your note"}
         hint={mode === "not_applicable" ? "For example: “There is no lift or pool at this scheme.”" : "Ikon will see this note against the document."}
         required
@@ -405,9 +413,13 @@ function NoteForm({
         maxLength={2000}
         value={text}
         onChange={(e) => setText(e.target.value)}
-        autoFocus
+        aria-invalid={error ? true : undefined}
+        aria-describedby={[`${fieldId}-hint`, error ? errorId : null].filter(Boolean).join(" ")}
+        data-autofocus
       />
-      <FormError error={error} />
+      <div id={errorId}>
+        <FormError error={error} />
+      </div>
       <div className="flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         <Button variant="secondary" onClick={onClose} disabled={busy}>
           Cancel

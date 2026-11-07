@@ -38,6 +38,11 @@ export function AddCompanyModal({ open, onClose, onSaved }: { open: boolean; onC
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
+    const abnDigits = form.abn.replace(/\s+/g, "");
+    if (abnDigits && !/^\d{11}$/.test(abnDigits)) {
+      setError(new Error("The ABN must be 11 digits."));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {

@@ -154,14 +154,14 @@ const STRATAFY: TemplateSection = {
       key: "stratafy.levy-schedule",
       title: "Generate the contribution (levy) schedule",
       detail:
-        "Contributions for each lot are generated from the budgets and unit entitlements; the schedule totals agree to the budgets and to the outgoing manager's levy register.",
+        "Contributions for each lot are generated from the budgets and unit entitlements; the schedule totals agree to the budgets and to the outgoing manager's contribution (levy) register.",
       role: "accountant",
     },
     {
       key: "stratafy.lot-balances",
       title: "Enter lot balances and arrears at handover",
       detail:
-        "Each lot's balance at the handover date (arrears, interest, prepaid contributions) is entered and agrees to the outgoing manager's levy register and final reconciliation.",
+        "Each lot's balance at the handover date (arrears, interest, prepaid contributions) is entered and agrees to the outgoing manager's contribution (levy) register and final reconciliation.",
       role: "accountant",
     },
     {
@@ -305,7 +305,7 @@ const APPOINTMENT: TemplateSection = {
       key: "appointment.address-for-service",
       title: "Change the address for service at Landgate",
       detail:
-        "The change of the strata company's address for service to Ikon has been lodged with Landgate (Amendment of Scheme Notice) and the registration confirmation is filed in 01 Plan & By-laws.",
+        "The change of the strata company's address for service to Ikon has been lodged with Landgate and the registration confirmation is filed in 01 Plan & By-laws.",
       group: "Appointment",
       role: "onboarding_officer",
     },
@@ -869,7 +869,7 @@ const HANDOVER_ITEMS: TemplateHandoverItem[] = [
   },
   {
     key: "levy-register",
-    title: "Levy register and lot ledgers",
+    title: "Contribution (levy) register and lot ledgers",
     detail:
       "The contribution (levy) register showing, for each lot, contributions raised and paid, the balance at the handover date and the next due date, with copies of the last contribution notices.",
     folder: "04 Financials & Levies",
@@ -973,7 +973,7 @@ const HANDOVER_ITEMS: TemplateHandoverItem[] = [
       "Fire services maintenance reports and the logbook (AS 1851), the fire equipment register, any outstanding fire defects and the emergency evacuation plan.",
     folder: "06 Compliance & Safety",
     required: true,
-    keywords: ["fire services", "fire safety", "fire report", "fire logbook", "fire log book", "fire inspection", "fire equipment", "as1851", "as 1851", "afss", "fire safety statement", "essential safety", "evacuation plan", "emergency lighting", "exit lights", "extinguishers", "sprinklers", "hydrant", "fire"],
+    keywords: ["fire services", "fire safety", "fire report", "fire logbook", "fire log book", "fire inspection", "fire equipment", "as1851", "as 1851", "afss", "fire safety statement", "essential safety", "evacuation plan", "evacuation", "evac plan", "evac", "emergency lighting", "exit lights", "extinguishers", "sprinklers", "hydrant", "fire"],
   },
   {
     key: "asbestos-whs",
@@ -991,7 +991,7 @@ const HANDOVER_ITEMS: TemplateHandoverItem[] = [
       "Where they apply: lift registration and inspection reports, pool barrier inspection, backflow testing, roof anchor and height safety certification, and RCD testing.",
     folder: "06 Compliance & Safety",
     required: false,
-    keywords: ["lift registration", "lift inspection", "pool barrier", "pool inspection", "pool", "backflow", "backflow test", "roof anchor", "anchor points", "height safety", "rcd", "test and tag", "compliance certificate", "legionella"],
+    keywords: ["lift registration", "lift inspection", "lift certificate", "lift cert", "lift", "pool barrier", "pool inspection", "pool", "backflow", "backflow test", "roof anchor", "anchor points", "height safety", "rcd", "test and tag", "compliance certificate", "legionella"],
   },
   // 07 Correspondence
   {
@@ -1057,7 +1057,7 @@ const GO_LIVE_CHECKS: TemplateGoLiveCheck[] = [
   check("Stratafy", "stratafy.council", "Council members and officers recorded in Stratafy"),
   check("Stratafy", "stratafy.budgets", "Administrative and reserve fund budgets in Stratafy match the adopted budgets"),
   check("Stratafy", "stratafy.contributions", "Contribution schedule totals agree to the budgets"),
-  check("Stratafy", "stratafy.lot-balances", "Lot balances agree to the outgoing manager's levy register"),
+  check("Stratafy", "stratafy.lot-balances", "Lot balances agree to the outgoing manager's contribution (levy) register"),
   check("Stratafy", "stratafy.payment-details", "Contribution notices show the new trust account and payment references"),
   // Xero
   check("Xero", "xero.customer", "Strata company set up as a customer in Xero"),

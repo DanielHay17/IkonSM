@@ -36,7 +36,7 @@ export function PortalFooter({ children }: { children?: ReactNode }) {
       <div className={cx(CONTAINER, "space-y-2 py-6 text-xs leading-relaxed text-muted")}>
         {children}
         <p>
-          IKON SM Strata Management · Perth, Western Australia ·{" "}
+          Ikon Strata Management · Perth, Western Australia ·{" "}
           <a href="https://www.ikonsm.com.au" target="_blank" rel="noreferrer" className="link-brand text-muted">
             ikonsm.com.au
           </a>

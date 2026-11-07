@@ -110,7 +110,7 @@ describe("onboarding template", () => {
     for (const pattern of [
       /handover letter/i, /secure (upload )?link/i, /records due date/i, /chase/i, /verify the handover pack/i, /reconcile the records transfer/i,
       /keys, fobs, remotes/i, /unit entitlement/i, /addresses for service/i, /levy\) schedule/i, /administrative and reserve fund budgets/i,
-      /arrears/i, /fee schedule/i, /additional-work charges/i, /Amendment of Scheme Notice/, /resolution appointing Ikon/i, /by-laws/i,
+      /arrears/i, /fee schedule/i, /additional-work charges/i, /address for service to Ikon has been lodged with Landgate/, /resolution appointing Ikon/i, /by-laws/i,
       /trust accounts/i, /by phone/i, /GST/, /BAS/, /income tax/i, /SAT/, /AS 1851/, /Synergy/, /Water Corporation/, /lift/i,
       /owner app/i, /property managers/i, /contractor handover/i, /lessons learned/i,
     ]) {

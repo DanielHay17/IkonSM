@@ -6,13 +6,12 @@ import { getAgentByName } from "agents";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { SECTION_KEYS, STAFF_DIRECTORY } from "../shared/onboarding";
-import { DEFAULT_INVITE_DAYS, isCalendarDate, MAX_INVITE_DAYS, type OnboardingResult } from "./agents/onboarding";
+import { EMAIL_PATTERN, inviteDatesProblem, isCalendarDate, SECTION_KEYS, STAFF_DIRECTORY } from "../shared/onboarding";
+import { DEFAULT_INVITE_DAYS, MAX_INVITE_DAYS, perthYmd, type OnboardingResult } from "./agents/onboarding";
 import { CHIEF_OF_STAFF_NAME } from "./ai/switch";
 import { notFound, readJson, type AppEnv, type PropertyEnv } from "./http";
 
 const RECORD_ID = /^[\w.:-]{1,100}$/;
-const EMAIL_ADDRESS = /^[^\s@<>()",;]+@[^\s@<>()",;]+\.[^\s@<>()",;]+$/;
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 // ---------------------------------------------------------------------------
@@ -42,7 +41,7 @@ const nullableText = (max: number) =>
 const ymd = z.string().trim().refine(isCalendarDate, "Must be a date (YYYY-MM-DD)");
 const clearableDate = ymd.nullish().transform((value) => (value === undefined ? undefined : value || null));
 const staffRef = z.string().trim().max(100).nullable().optional();
-const email = z.string().trim().toLowerCase().max(254).regex(EMAIL_ADDRESS, "Invalid email address");
+const email = z.string().trim().toLowerCase().max(254).regex(EMAIL_PATTERN, "Invalid email address");
 
 const createProjectSchema = z.object({
   name: nullableText(200).transform((v) => v ?? undefined),
@@ -86,7 +85,16 @@ const inviteSchema = z.object({
   }),
   handoverDate: ymd,
   recordsDueDate: ymd,
+}).superRefine((input, ctx) => {
+  const problem = inviteDatesProblem(input.handoverDate, input.recordsDueDate, perthYmd(new Date()));
+  // No field path: the message reads as a sentence on the staff screen.
+  if (problem) ctx.addIssue({ code: "custom", message: problem });
 });
+
+const fileActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("verify") }),
+  z.object({ action: z.literal("attach"), itemId: z.string().trim().regex(RECORD_ID, "Invalid itemId") }),
+]);
 
 const activateSchema = z.object({
   expiresInDays: z.number().int().min(1).max(MAX_INVITE_DAYS).nullish().transform((v) => v ?? DEFAULT_INVITE_DAYS),
@@ -212,6 +220,13 @@ onboardingRoutes.post("/handover/:itemId", async (c) => {
   const itemId = recordId(c.req.param("itemId"));
   const patch = await readJson(c, handoverPatchSchema);
   return c.json(unwrap(await c.var.agent.updateHandoverItem(itemId, patch, c.var.staffName)));
+});
+
+/** One uploaded file: { action: "verify" } makes an extra file a building record; { action: "attach", itemId } files it against a requested document. */
+onboardingRoutes.post("/files/:docId", async (c) => {
+  const docId = recordId(c.req.param("docId"));
+  const input = await readJson(c, fileActionSchema);
+  return c.json(unwrap(await c.var.agent.updateHandoverFile(docId, input, c.var.staffName)));
 });
 
 onboardingRoutes.post("/golive/:checkId", async (c) => {

@@ -34,6 +34,16 @@ export const ADDED_COLUMNS: readonly (readonly [table: string, column: string, t
   ["approvals", "engine_model", "TEXT"],
   ["approvals", "engine_provider", "TEXT"],
   ["messages", "sender_verified", "INTEGER"],
+  // "portal" for lines from the outgoing manager's upload portal (their own retention); null for everything else.
+  ["activity", "origin", "TEXT"],
+  // Onboarding (review fixes): portal events kept apart, upload sessions, per-file verification, per-link notes.
+  ["onboarding_events", "origin", "TEXT"],
+  ["onboarding_events", "batch_count", "INTEGER"],
+  ["handover_files", "verified_by", "TEXT"],
+  ["handover_files", "verified_at", "TEXT"],
+  ["handover_items", "supplier_invite_id", "TEXT"],
+  ["handover_items", "supplier_claim", "TEXT"],
+  ["handover_invites", "contact_id", "TEXT"],
 ];
 
 /** Idempotent DDL, run in order on every wake (onStart). */

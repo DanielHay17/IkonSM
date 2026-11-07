@@ -72,7 +72,8 @@ function patchCheck(cookie: string, id: string, checkId: string, body: Record<st
 async function completeProject(cookie: string, id: string): Promise<OnboardingProjectDetail> {
   const detail = await getProject(cookie, id);
   for (const t of detail.tasks) await patchTask(cookie, id, t.id, { status: "done" });
-  for (const i of detail.handoverItems) await patchItem(cookie, id, i.id, { status: "verified" });
+  // No files were uploaded in these tests: each document is recorded as received on paper (a note is required).
+  for (const i of detail.handoverItems) await patchItem(cookie, id, i.id, { status: "verified", reviewNote: "Originals received on paper" });
   for (const c of detail.goLiveChecks) await patchCheck(cookie, id, c.id, { status: "verified" });
   for (const s of detail.sections) await review(cookie, id, s.key, { decision: "reviewed" });
   if (!detail.invites.some((i) => i.activatedAt)) {
@@ -106,9 +107,11 @@ describe("onboarding demo data and the Chief of Staff", () => {
 
     const pilot = await getProject(cookie, DEMO_PILOT_ID);
     // Created nine days ago; the dates hang off today.
+    // Started at 9:15 am (Perth) on the day nine days ago.
     const ageDays = (Date.now() - Date.parse(pilot.createdAt)) / 86_400_000;
-    expect(ageDays).toBeGreaterThan(8.9);
-    expect(ageDays).toBeLessThan(9.1);
+    expect(ageDays).toBeGreaterThan(8.5);
+    expect(ageDays).toBeLessThan(9.7);
+    expect(new Date(Date.parse(pilot.createdAt) + 8 * 3_600_000).toISOString().slice(11, 16)).toBe("09:15");
     expect(Math.abs(Date.parse(pilot.targetGoLiveDate!) - (Date.now() + 20 * 86_400_000))).toBeLessThan(2 * 86_400_000);
 
     // An active link opened three times, the last about two hours ago.
@@ -204,7 +207,7 @@ describe("onboarding demo data and the Chief of Staff", () => {
     });
     expect(chat.text).toMatch(/^AI offline: /);
     expect(chat.text).toContain("Onboarding: SP87192 – Pilot onboarding (In progress)");
-    expect(chat.text).toContain("Still waiting for from the outgoing manager: ");
+    expect(chat.text).toContain("Still to come from the outgoing manager: ");
     const outstanding = pilot.handoverItems.filter((i) => i.status === "awaiting_supply");
     if (outstanding[0]) expect(chat.text).toContain(outstanding[0].title);
     expect(chat.toolCalls.map((t) => t.name)).toContain("onboarding_status");
@@ -437,14 +440,20 @@ describe("onboarding projects", () => {
     expect((await call(`${base(id)}/handover/no-such-item`, { cookie, json: { status: "verified" } })).status).toBe(404);
 
     expect(await patchItem(cookie, id, item.id, { status: "rejected", reviewNote: "Wrong year" })).toMatchObject({ status: "rejected", reviewNote: "Wrong year", verifiedBy: null });
-    expect(await patchItem(cookie, id, item.id, { status: "verified" })).toMatchObject({ status: "verified", verifiedBy: "Lee Demo", reviewNote: null });
+    // No file: "verified" needs a note saying how the document was received (e.g. originals on paper).
+    expect((await call(`${base(id)}/handover/${item.id}`, { cookie, json: { status: "verified" } })).status).toBe(400);
+    expect(await patchItem(cookie, id, item.id, { status: "verified", reviewNote: "Original handed over on paper" })).toMatchObject({
+      status: "verified",
+      verifiedBy: "Lee Demo",
+      reviewNote: "Original handed over on paper",
+    });
     expect(await patchItem(cookie, id, item.id, { status: "not_applicable", reviewNote: "No pool" })).toMatchObject({ status: "not_applicable", verifiedBy: "Lee Demo" });
     expect(await patchItem(cookie, id, item.id, { status: "awaiting_supply" })).toMatchObject({ status: "awaiting_supply", verifiedBy: null, verifiedAt: null });
     const events = (await getProject(cookie, id)).events.filter((e) => e.kind === "handover").map((e) => e.summary);
     expect(events).toEqual([
       `Lee Demo reopened "${item.title}" (awaiting supply)`,
       `Lee Demo marked "${item.title}" not applicable`,
-      `Lee Demo verified "${item.title}"`,
+      `Lee Demo recorded "${item.title}" as received`,
       `Lee Demo asked for "${item.title}" to be replaced`,
     ]);
 
@@ -663,7 +672,9 @@ describe("handover invitations", () => {
     expect(invites.find((i) => i.id === first.id)).toMatchObject({ status: "revoked" });
     expect(invites.find((i) => i.id === second.id)).toMatchObject({ status: "active" });
     const approvals = await callJson<Approval[]>(`/api/properties/${id}/approvals`, { cookie });
-    expect(approvals.find((a) => a.id === firstLink.invite.approvalId)).toMatchObject({ status: "rejected", result: expect.stringMatching(/^Withdrawn: handover link revoked/) });
+    expect(approvals.find((a) => a.id === firstLink.invite.approvalId)).toMatchObject({ status: "rejected", result: expect.stringMatching(/^Withdrawn: handover link withdrawn/) });
+    // The withdrawn letter's stored copy no longer holds the token.
+    expect(approvals.find((a) => a.id === firstLink.invite.approvalId)!.draft.body).not.toContain(tokenOf(firstLink.url));
     expect(approvals.find((a) => a.id === secondLink.invite.approvalId)).toMatchObject({ status: "pending" });
     expect((await portal(tokenOf(firstLink.url))).status).toBe(410);
     expect((await portal(tokenOf(secondLink.url))).status).toBe(200);
@@ -674,7 +685,7 @@ describe("handover invitations", () => {
     expect(Date.now() - Date.parse(revoked.revokedAt!)).toBeLessThan(60_000);
     expect((await portal(tokenOf(secondLink.url))).status).toBe(410);
     expect((await callJson<Approval[]>(`/api/properties/${id}/approvals?status=pending`, { cookie })).filter((a) => a.title.startsWith("Handover request"))).toHaveLength(0);
-    expect((await getProject(cookie, id)).events[0]!.summary).toBe("Tom revoked the handover link for Robin Sample (Sample Strata Co Pty Ltd)");
+    expect((await getProject(cookie, id)).events[0]!.summary).toBe("Tom withdrew the handover link for Robin Sample (Sample Strata Co Pty Ltd)");
   });
 
   it("seals the token for its own invitation only, and issues tokens that route to the building", async () => {

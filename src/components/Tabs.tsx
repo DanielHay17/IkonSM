@@ -46,6 +46,8 @@ export function TabNav<K extends string>({ items, active, label }: { items: TabI
               >
                 {item.icon ? <Icon name={item.icon} className={cx("size-4", selected ? "text-ink" : "text-taupe")} /> : null}
                 {item.label}
+                {/* Keeps "Tasks" and "46 open" apart in the link's accessible name. */}
+                {item.adornment ? <span className="sr-only">, </span> : null}
                 {item.adornment}
               </Link>
             </li>

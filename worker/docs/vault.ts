@@ -1,5 +1,7 @@
 // R2 key naming and MIME detection for the document vault.
 
+import { stripInvisible } from "../../shared/onboarding";
+
 const MAX_NAME_CHARS = 120;
 const MAX_FOLDER_CHARS = 80;
 const GENERIC_MIME_TYPES = new Set([
@@ -73,11 +75,13 @@ export function guessMime(filename: string, provided?: string | null): string {
   return MIME_BY_EXTENSION[extensionOf(filename)] ?? "application/octet-stream";
 }
 
-/** The name shown on the Files tab: the original file name without any path or control characters. */
+/**
+ * The name shown on the Files tab: the original file name without any path, control, bidi-override or
+ * zero-width characters (so "Levy notice \u202Efdp.exe" can't pose as a PDF).
+ */
 export function displayFileName(raw: string): string {
   const base = raw.split(/[/\\]/).pop() ?? "";
-  const clean = base
-    .normalize("NFC")
+  const clean = stripInvisible(base.normalize("NFC"))
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .replace(/\s+/g, " ")
     .trim();

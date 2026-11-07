@@ -103,21 +103,21 @@ describe("onboarding staff screens: derived values", () => {
     expect(folders[0]!.folder).toBe("01 Plan & By-laws");
   });
 
-  it("sorts invitations into drafts, the live link and history", async () => {
+  it("sorts invitations into drafts and the live link", async () => {
     const cookie = await loadDemo();
     const pilot = await getProject(cookie, PILOT);
     const fresh = await getProject(cookie, FRESH);
-    expect(inviteBuckets(pilot.invites)).toMatchObject({ drafts: [], current: { status: "active", accessCount: 3 }, history: [] });
-    expect(inviteBuckets(fresh.invites)).toMatchObject({ drafts: [{ status: "draft" }], current: null, history: [] });
+    expect(inviteBuckets(pilot.invites)).toMatchObject({ drafts: [], current: { status: "active", accessCount: 3 } });
+    expect(inviteBuckets(fresh.invites)).toMatchObject({ drafts: [{ status: "draft" }], current: null });
 
-    // Activating the draft makes it the live link; revoking it moves it to history.
+    // Activating the draft makes it the live link; withdrawing it leaves no live link.
     const draft = fresh.invites[0]!;
     await callJson(`/api/properties/${FRESH}/onboarding/invites/${draft.id}/activate`, { cookie, json: {} });
     const active = inviteBuckets((await getProject(cookie, FRESH)).invites);
     expect(active.current?.id).toBe(draft.id);
     await callJson(`/api/properties/${FRESH}/onboarding/invites/${draft.id}/revoke`, { cookie, json: {} });
     const revoked = inviteBuckets((await getProject(cookie, FRESH)).invites);
-    expect(revoked).toMatchObject({ drafts: [], current: null, history: [{ id: draft.id, status: "revoked" }] });
+    expect(revoked).toMatchObject({ drafts: [], current: null });
   });
 
   it("derives the project map: the pilot part-way through, a fresh draft not started", async () => {

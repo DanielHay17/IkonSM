@@ -44,10 +44,10 @@ export function SectionCard({
   const tasksHref = (group?: string) => paths.onboardingProject(propertyId, "tasks", { section: section.key, group });
   return (
     <article
-      className="group/card relative flex min-w-0 flex-col border border-line bg-surface px-4 pt-5 pb-4 shadow-card sm:px-5 transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-pop"
+      className="group/card relative flex min-w-0 flex-col border border-line bg-surface px-4 pt-5 pb-4 shadow-card transition-[border-color,box-shadow] hover:border-line-strong hover:shadow-pop @5xl:px-5"
       aria-labelledby={`section-${project.id}-${section.key}`}
     >
-      <h3 id={`section-${project.id}-${section.key}`} className="heading-display text-[15px] leading-snug text-ink">
+      <h3 id={`section-${project.id}-${section.key}`} className="heading-display text-[14px] leading-snug text-ink @5xl:text-[15px]">
         <Link
           href={tasksHref()}
           title={`Open the ${section.title} tasks`}
@@ -58,23 +58,27 @@ export function SectionCard({
       </h3>
       <p className="mt-2 text-[13px] leading-relaxed text-muted">{section.description}</p>
 
-      <p className="mt-4 text-lg leading-7 font-semibold text-ink tabular-nums">
-        {counts.done} / {counts.total} tasks complete
+      <p className="mt-4 text-base leading-7 font-semibold text-ink tabular-nums @5xl:text-lg">
+        <span className="whitespace-nowrap">
+          {counts.done} / {counts.total}
+        </span>{" "}
+        tasks complete
       </p>
       <p className="mt-1.5 text-xs text-muted tabular-nums">{counts.excluded} excluded or cancelled</p>
 
+      {/* Plain figures, as on Peter's cards: the group links below go to Handover and Go-live. */}
       {section.key === "outgoing_manager" ? (
-        <p className="mt-2 text-xs text-ink-soft tabular-nums">
-          <Link href={paths.onboardingProject(propertyId, "handover")} className={INNER_LINK}>
-            {project.counts.handoverVerified} documents verified · {project.counts.handoverAwaitingVerification} awaiting verification
-          </Link>
+        <p className="mt-2 text-xs text-muted tabular-nums">
+          <span className="whitespace-nowrap">{project.counts.handoverVerified} documents verified</span> ·{" "}
+          <span className="whitespace-nowrap">{project.counts.handoverAwaitingVerification} awaiting verification</span>
         </p>
       ) : null}
       {section.key === "readiness_closeout" ? (
-        <p className="mt-2 text-xs text-ink-soft tabular-nums">
-          <Link href={paths.onboardingProject(propertyId, "golive")} className={INNER_LINK}>
-            {project.counts.goLiveVerified} / {project.counts.goLiveChecks} checks verified · {project.counts.goLiveNotApplicable} not applicable
-          </Link>
+        <p className="mt-2 text-xs text-muted tabular-nums">
+          <span className="whitespace-nowrap">
+            {project.counts.goLiveVerified} / {project.counts.goLiveChecks} checks verified
+          </span>{" "}
+          · <span className="whitespace-nowrap">{project.counts.goLiveNotApplicable} not applicable</span>
         </p>
       ) : null}
 
@@ -114,11 +118,18 @@ export function SectionCard({
         </div>
       </dl>
 
-      <div className="mt-auto pt-4">
-        <button type="button" onClick={() => onAssign(section)} aria-label={`Section assignment: ${section.title}`} className={cx(INNER_LINK, "text-[13px] font-semibold")}>
-          Section assignment
-        </button>
-      </div>
+      {project.status === "closed" ? null : (
+        <div className="mt-auto pt-4">
+          <button
+            type="button"
+            onClick={() => onAssign(section)}
+            aria-label={`Section assignment: ${section.title}`}
+            className={cx(INNER_LINK, "inline-flex min-h-6 items-center text-[13px] font-semibold")}
+          >
+            Section assignment
+          </button>
+        </div>
+      )}
     </article>
   );
 }
@@ -126,8 +137,8 @@ export function SectionCard({
 export function DocumentsMissingCard({ propertyId, project }: { propertyId: string; project: OnboardingProject }) {
   const { handoverAwaitingSupply, handoverRejected } = project.counts;
   return (
-    <article className="relative flex min-w-0 flex-col border border-line bg-sunken/60 px-4 pt-5 pb-4 shadow-card hover:border-line-strong sm:px-5" aria-labelledby={`missing-${project.id}`}>
-      <h3 id={`missing-${project.id}`} className="heading-display text-[15px] leading-snug text-ink">
+    <article className="relative flex min-w-0 flex-col border border-line bg-sunken/60 px-4 pt-5 pb-4 shadow-card hover:border-line-strong @5xl:px-5" aria-labelledby={`missing-${project.id}`}>
+      <h3 id={`missing-${project.id}`} className="heading-display text-[14px] leading-snug text-ink @5xl:text-[15px]">
         <Link
           href={paths.onboardingProject(propertyId, "handover", { status: "awaiting_supply" })}
           className="after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:outline-offset-2 focus-visible:after:outline-ink"
@@ -136,7 +147,7 @@ export function DocumentsMissingCard({ propertyId, project }: { propertyId: stri
         </Link>
       </h3>
       <p className="mt-2 text-[13px] leading-relaxed text-muted">Outstanding handover documents across the same project.</p>
-      <p className="mt-4 text-lg leading-7 font-semibold text-ink tabular-nums">{handoverAwaitingSupply} awaiting supply</p>
+      <p className="mt-4 text-base leading-7 font-semibold text-ink tabular-nums @5xl:text-lg">{handoverAwaitingSupply} awaiting supply</p>
       {handoverRejected > 0 ? (
         <p className="mt-1.5 text-xs font-medium text-red-700 tabular-nums">
           <Link href={paths.onboardingProject(propertyId, "handover", { status: "rejected" })} className={cx(INNER_LINK, "text-red-700! decoration-red-300")}>
@@ -148,7 +159,10 @@ export function DocumentsMissingCard({ propertyId, project }: { propertyId: stri
   );
 }
 
-/** Four columns once the block is wide enough (a container query, so the sidebar and padding are allowed for). */
+/**
+ * Four columns once the block is 768 px wide (a container query, so the sidebar and padding are allowed for): at
+ * Peter's screen size the hub shows the same 4 × 2 grid as his Zoho dashboard.
+ */
 export function SectionGrid({
   propertyId,
   project,
@@ -161,7 +175,7 @@ export function SectionGrid({
   const [assigning, setAssigning] = useState<OnboardingSection | null>(null);
   return (
     <div className="@container">
-      <div className="grid grid-cols-1 gap-4 @xl:grid-cols-2 @4xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2 @3xl:grid-cols-4 @5xl:gap-4">
         {project.sections.map((section) => (
           <SectionCard key={section.key} propertyId={propertyId} project={project} section={section} onAssign={setAssigning} />
         ))}

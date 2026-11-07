@@ -22,6 +22,8 @@ interface ModalProps {
    * instead of the display caps used for fixed labels like "NEW WORK ORDER".
    */
   plainTitle?: boolean;
+  /** Where focus goes after closing when the control that opened the dialog no longer exists. */
+  returnFocus?: () => HTMLElement | null;
 }
 
 const SIZES: Record<ModalSize, string> = {
@@ -52,6 +54,7 @@ export function Modal({
   size = "md",
   bare = false,
   plainTitle = false,
+  returnFocus,
 }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -59,9 +62,19 @@ export function Modal({
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
+    if (open && !dialog.open) {
+      dialog.showModal();
+      // showModal() focuses the first control (the header's Close). A field marked data-autofocus (a note the
+      // dialog exists to collect) gets the focus instead; React's autoFocus runs too early to survive showModal.
+      dialog.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+    }
+    if (!open && dialog.open) {
+      dialog.close();
+      // close() returns focus to the control that opened the dialog; when that control is gone (the action
+      // replaced it), focus would fall to <body>, so it goes to the fallback instead.
+      if ((!document.activeElement || document.activeElement === document.body) && returnFocus) returnFocus()?.focus();
+    }
+  }, [open, returnFocus]);
 
   return (
     <dialog
@@ -122,10 +135,12 @@ interface ConfirmDialogProps {
   description: ReactNode;
   confirmLabel: string;
   destructive?: boolean;
+  /** Where focus goes after closing when the control that opened the dialog is gone. */
+  returnFocus?: () => HTMLElement | null;
 }
 
 /** Yes/no confirmation that keeps itself open (with the error shown) if the action fails. */
-export function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLabel, destructive = true }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLabel, destructive = true, returnFocus }: ConfirmDialogProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -152,6 +167,7 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, description, co
       onClose={busy ? () => undefined : onClose}
       title={title}
       size="sm"
+      returnFocus={returnFocus}
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={busy}>

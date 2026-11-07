@@ -1,8 +1,8 @@
 // Section reviews (each section's nominated approver, review status, Reviewed / Changes requested with a
 // note), then the final go-live approval (its blockers, or Approve go-live) and the closeout.
 
-import { useId, useState } from "react";
-import { REVIEW_STATUS_LABELS, staffById, type OnboardingSection, type ReviewStatus } from "../../../shared/onboarding";
+import { useEffect, useId, useState } from "react";
+import { REVIEW_STATUS_LABELS, sectionTaskLine, staffById, type OnboardingSection, type ReviewStatus } from "../../../shared/onboarding";
 import { goLiveBlockers, onboardingApi } from "../../api";
 import { Button } from "../../components/Button";
 import { Card, CardBody, CardHeader } from "../../components/Card";
@@ -32,7 +32,7 @@ function NotApproverHint({ approverId }: { approverId: string | null }) {
 }
 
 function SectionReviewRow({ section, onAssign }: { section: OnboardingSection; onAssign: () => void }) {
-  const { propertyId, apply, acting } = useProject();
+  const { propertyId, apply, acting, readOnly } = useProject();
   const toast = useToast();
   const noteId = useId();
   const [note, setNote] = useState("");
@@ -63,12 +63,14 @@ function SectionReviewRow({ section, onAssign }: { section: OnboardingSection; o
         <ReviewBadge review={section.review} />
       </div>
       <p className="mt-1 text-xs text-ink-soft tabular-nums">
-        {section.counts.done + section.counts.excluded} / {section.counts.total} tasks · <ProgressText progress={section.progress} /> · Owner:{" "}
-        {staffName(section.ownerId)} · Nominated approver: {staffName(section.approverId)}
+        {sectionTaskLine(section.counts)} · <ProgressText progress={section.progress} /> · Owner: {staffName(section.ownerId)} · Nominated approver:{" "}
+        {staffName(section.approverId)}
         {acting && acting.id === section.approverId ? <span className="font-medium text-ink"> (you)</span> : null}{" "}
-        <button type="button" onClick={onAssign} aria-label={`Section assignment: ${section.title}`} className="ml-1 font-medium link-brand">
-          Section assignment
-        </button>
+        {readOnly ? null : (
+          <button type="button" onClick={onAssign} aria-label={`Section assignment: ${section.title}`} className="ml-1 inline-flex min-h-6 items-center font-medium link-brand">
+            Section assignment
+          </button>
+        )}
       </p>
       {section.reviewedBy ? (
         <p
@@ -78,39 +80,54 @@ function SectionReviewRow({ section, onAssign }: { section: OnboardingSection; o
           )}
         >
           {REVIEW_STATUS_LABELS[section.review]} by {section.reviewedBy}
-          {section.reviewedAt ? `, ${formatDateTime(section.reviewedAt)}` : ""}
+          {section.reviewedAt ? `, ${formatDateTime(section.reviewedAt, true)}` : ""}
           {section.reviewNote ? `: “${section.reviewNote}”` : ""}
         </p>
       ) : null}
-      <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-1">
-          <label htmlFor={noteId} className="sr-only">
-            Review note for {section.title}
-          </label>
-          <textarea
-            id={noteId}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={1}
-            maxLength={2000}
-            placeholder="Review note (optional)"
-            className={textareaClasses("min-h-9 text-[13px]! py-1.5!")}
-          />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="secondary" icon="refresh" loading={busy === "changes_requested"} disabled={busy !== null} onClick={() => decide("changes_requested")}>
-            Changes requested
-          </Button>
-          <Button size="sm" variant="primary" icon="check" loading={busy === "reviewed"} disabled={busy !== null} onClick={() => decide("reviewed")}>
-            Reviewed
-          </Button>
-          {section.review !== "not_reviewed" ? (
-            <Button size="sm" variant="ghost" loading={busy === "not_reviewed"} disabled={busy !== null} onClick={() => decide("not_reviewed")}>
-              Clear
+      {readOnly ? null : (
+        <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-end">
+          <div className="min-w-0 flex-1">
+            <label htmlFor={noteId} className="mb-1 block text-xs font-medium text-muted">
+              Review note (optional)<span className="sr-only"> for {section.title}</span>
+            </label>
+            <textarea
+              id={noteId}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={1}
+              maxLength={2000}
+              className={textareaClasses("min-h-9 text-[13px]! py-1.5!")}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {/* Only the clicked button shows it is busy (and keeps focus); the others wait. */}
+            <Button
+              size="sm"
+              variant="secondary"
+              icon="refresh"
+              loading={busy === "changes_requested"}
+              disabled={busy !== null && busy !== "changes_requested"}
+              onClick={() => decide("changes_requested")}
+            >
+              Changes requested<span className="sr-only">: {section.title}</span>
             </Button>
-          ) : null}
+            <Button size="sm" variant="primary" icon="check" loading={busy === "reviewed"} disabled={busy !== null && busy !== "reviewed"} onClick={() => decide("reviewed")}>
+              Reviewed<span className="sr-only">: {section.title}</span>
+            </Button>
+            {section.review !== "not_reviewed" ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={busy === "not_reviewed"}
+                disabled={busy !== null && busy !== "not_reviewed"}
+                onClick={() => decide("not_reviewed")}
+              >
+                Clear<span className="sr-only"> the review of {section.title}</span>
+              </Button>
+            ) : null}
+          </div>
         </div>
-      </div>
+      )}
     </li>
   );
 }
@@ -122,6 +139,9 @@ function FinalApproval() {
   const [note, setNote] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [refused, setRefused] = useState<string[] | null>(null);
+  // A refusal shows the blockers the server gave until the next refresh brings the project's own list.
+  const blockerKey = project.blockers.join("\n");
+  useEffect(() => setRefused(null), [blockerKey]);
   const readiness = project.sections.find((s) => s.key === "readiness_closeout");
   const approverId = readiness?.approverId ?? null;
 
@@ -148,7 +168,7 @@ function FinalApproval() {
       <Notice tone="green" icon="check" title="Go-live approved">
         {project.finalApproval ? (
           <>
-            By {project.finalApproval.approvedBy}, {formatDateTime(project.finalApproval.approvedAt)}
+            By {project.finalApproval.approvedBy}, {formatDateTime(project.finalApproval.approvedAt, true)}
             {project.finalApproval.note ? `: “${project.finalApproval.note}”` : "."}
           </>
         ) : null}{" "}

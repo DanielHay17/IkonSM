@@ -24,6 +24,10 @@ import {
 
 /** The spec's "Upload N files sends 3 at a time". */
 export const PORTAL_UPLOAD_CONCURRENCY = 3;
+/** A file this big uploads on its own (the server holds a few copies of it while indexing). */
+export const PORTAL_LARGE_FILE_BYTES = 8 * 1024 * 1024;
+/** The server keeps only the end of a longer path (display only), so the portal sends no more than that. */
+export const PORTAL_MAX_PATH_CHARS = 500;
 /** Automatic retries of one file after a timeout or a server error, before it shows as failed. */
 export const PORTAL_UPLOAD_AUTO_RETRIES = 4;
 /** Rate-limited (429) retries: more, since the portal's limiter counts a whole minute (about 4.5 min of waiting). */
@@ -252,7 +256,8 @@ export function chooseFolder<S>(row: UploadRow<S>, folder: VaultFolderName): Upl
 
 /** The multipart fields the server reads: always the path (it matches on it), the choice and the folder. */
 export function uploadFields(row: Pick<UploadRow, "path" | "itemId" | "folder">): { relativePath: string; itemId: string; folder: VaultFolderName } {
-  return { relativePath: row.path, itemId: row.itemId ?? NO_ITEM, folder: row.folder };
+  const path = row.path.length <= PORTAL_MAX_PATH_CHARS ? row.path : `…${row.path.slice(row.path.length - (PORTAL_MAX_PATH_CHARS - 1))}`;
+  return { relativePath: path, itemId: row.itemId ?? NO_ITEM, folder: row.folder };
 }
 
 export type ConfidenceLevel = "strong" | "likely" | "possible";
@@ -590,8 +595,19 @@ export class UploadQueue<S> {
     const { state } = this.snapshot;
     if (state === "stopped" || state === "paused") return;
     const waiting = this.snapshot.rows.filter((row) => row.status === "queued" && !this.inFlight.has(row.id));
-    const free = this.deps.concurrency - this.inFlight.size;
-    for (const row of waiting.slice(0, Math.max(0, free))) void this.run(row.id);
+    const large = (row: UploadRow<S>) => row.size > PORTAL_LARGE_FILE_BYTES;
+    // A large file goes up on its own: nothing starts beside it, and it waits for the others to finish.
+    const largeInFlight = this.snapshot.rows.some((row) => this.inFlight.has(row.id) && large(row));
+    let free = largeInFlight ? 0 : this.deps.concurrency - this.inFlight.size;
+    for (const row of waiting) {
+      if (free <= 0) break;
+      if (large(row)) {
+        if (this.inFlight.size === 0) void this.run(row.id);
+        break;
+      }
+      void this.run(row.id);
+      free--;
+    }
     this.settleState();
   }
 

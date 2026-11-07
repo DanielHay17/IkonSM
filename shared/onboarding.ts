@@ -173,6 +173,56 @@ export const HANDOVER_STATUS_LABELS: Record<HandoverItemStatus, string> = {
 };
 export const PROGRESS_LABELS: Record<SectionProgress, string> = { not_started: "Not started", in_progress: "In progress", complete: "Complete" };
 
+/** The Readiness & closeout group whose tasks gate closeout (they come after go-live, so they don't block it). */
+export const QA_GROUP = "Completion & quality assurance";
+
+export function isQaGroup(group: string): boolean {
+  return group.trim().toLowerCase() === QA_GROUP.toLowerCase();
+}
+
+/** not_started when nothing is done or excluded; complete when nothing is open; else in_progress. */
+export function sectionProgress(c: SectionCounts): SectionProgress {
+  if (c.done === 0 && c.excluded === 0) return "not_started";
+  if (c.open === 0) return "complete";
+  return "in_progress";
+}
+
+/** "4 / 13 tasks complete" style counts read the same everywhere: done (never done + excluded) of total. */
+export function sectionTaskLine(c: SectionCounts): string {
+  return `${c.done} / ${c.total} done${c.excluded ? ` · ${c.excluded} excluded` : ""}`;
+}
+
+/** YYYY-MM-DD */
+export const YMD_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+/** The address check used for outgoing managers and directory contacts. */
+export const EMAIL_PATTERN = /^[^\s@<>()",;]+@[^\s@<>()",;]+\.[^\s@<>()",;]+$/;
+
+/** A real calendar date as YYYY-MM-DD. */
+export function isCalendarDate(value: string): boolean {
+  const m = YMD_PATTERN.exec(value);
+  if (!m) return false;
+  const date = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return date.getUTCFullYear() === Number(m[1]) && date.getUTCMonth() === Number(m[2]) - 1 && date.getUTCDate() === Number(m[3]);
+}
+
+/**
+ * Invitation dates that make sense together, or the reason they don't: the records are due on or before the
+ * handover date, and the handover is not in the past. `today` is YYYY-MM-DD (Perth).
+ */
+export function inviteDatesProblem(handoverDate: string, recordsDueDate: string, today: string): string | null {
+  if (handoverDate < today) return "The handover date can't be in the past";
+  if (recordsDueDate > handoverDate) return "The records must be due on or before the handover date";
+  return null;
+}
+
+/** Characters that can disguise text (bidi overrides, zero-width marks, C0/C1 controls); never shown or stored. */
+export const INVISIBLE_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g;
+
+/** Removes INVISIBLE_CHARS (keeps tabs and line breaks for notes). */
+export function stripInvisible(text: string): string {
+  return text.replace(INVISIBLE_CHARS, "");
+}
+
 export interface OnboardingTask {
   id: string;
   sectionKey: SectionKey;
@@ -224,6 +274,14 @@ export interface HandoverFile {
   uploadedBy: string;
   /** Path inside the zip or folder it came from, if any (e.g. "SP87192/Insurance/Policy 2026.pdf"). */
   sourcePath: string | null;
+  /** The invitation (secure link) it was uploaded through; staff label uploads from a withdrawn or expired link. */
+  inviteId: string | null;
+  /**
+   * Set once the document is a trusted building record: its item was verified, or staff verified it on its own
+   * (an extra file). null while it is still an unverified upload from the outgoing manager.
+   */
+  verifiedBy: string | null;
+  verifiedAt: string | null;
 }
 
 export interface HandoverItem {
@@ -237,6 +295,13 @@ export interface HandoverItem {
   files: HandoverFile[];
   /** From the outgoing manager (e.g. why it is not applicable). */
   supplierNote: string | null;
+  /** The invitation whose holder wrote supplierNote (staff label notes from a withdrawn or expired link). */
+  supplierNoteInviteId: string | null;
+  /**
+   * The outgoing manager says this required document does not apply (status awaiting_verification, usually with
+   * no files). Staff accept it (status not_applicable) or send it back; it is never "verified" without a document.
+   */
+  notApplicableClaimed: boolean;
   /** From Ikon staff; shown to the outgoing manager when a document is rejected. */
   reviewNote: string | null;
   verifiedBy: string | null;
@@ -333,6 +398,9 @@ export interface OnboardingProject {
 
 export type OnboardingEventKind = "project" | "task" | "section" | "handover" | "upload" | "invite" | "portal" | "golive" | "approval";
 
+/** Who caused an event: Ikon staff (and the hub itself), or the outgoing manager through the portal. */
+export type OnboardingEventOrigin = "staff" | "portal";
+
 export interface OnboardingEvent {
   id: string;
   at: string;
@@ -341,7 +409,12 @@ export interface OnboardingEvent {
   actor: string;
   summary: string;
   detail: string | null;
+  /** Portal events are kept and listed apart, so the outgoing manager's traffic never pushes staff actions out. */
+  origin: OnboardingEventOrigin;
 }
+
+/** Events returned with a project: the newest of each origin, so neither can crowd the other out. */
+export const ONBOARDING_EVENT_LIMIT = 200;
 
 export interface OnboardingProjectDetail extends OnboardingProject {
   tasks: OnboardingTask[];
@@ -349,7 +422,10 @@ export interface OnboardingProjectDetail extends OnboardingProject {
   /** Uploaded files that were not matched to a requested item (still filed in the building's Files). */
   extraFiles: HandoverFile[];
   goLiveChecks: GoLiveCheck[];
-  /** Newest first, at most 200. */
+  /**
+   * Newest first: at most ONBOARDING_EVENT_LIMIT staff events plus at most ONBOARDING_EVENT_LIMIT portal events
+   * (uploads are recorded once per upload session, not once per file).
+   */
   events: OnboardingEvent[];
 }
 
@@ -361,6 +437,8 @@ export interface OnboardingSummary {
   suburb: string;
   buildingStatus: "pilot" | "active" | "onboarding";
   project: OnboardingProject | null;
+  /** The building's agent did not answer: its project (if any) is unknown, so it is not offered for a new one. */
+  unavailable: boolean;
 }
 
 // ===========================================================================
@@ -495,9 +573,16 @@ export interface SectionReviewInput {
   note?: string | null;
 }
 export interface HandoverItemPatch {
+  /**
+   * "awaiting_supply" is Reopen: an item that still has files goes back to awaiting_verification instead.
+   * "verified" needs a file, or a reviewNote saying how it was received (e.g. originals handed over on paper);
+   * an item the outgoing manager claimed not applicable is accepted with "not_applicable", never "verified".
+   */
   status: "verified" | "rejected" | "not_applicable" | "awaiting_supply";
   reviewNote?: string | null;
 }
+/** A staff action on one uploaded file: verify it as a building record, or attach it to a requested document. */
+export type HandoverFileAction = { action: "verify" } | { action: "attach"; itemId: string };
 export interface GoLiveCheckPatch {
   status: GoLiveCheckStatus;
   note?: string | null;

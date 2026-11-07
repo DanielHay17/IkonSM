@@ -37,6 +37,8 @@ import type {
   FinalApprovalInput,
   GoLiveCheck,
   GoLiveCheckPatch,
+  HandoverFile,
+  HandoverFileAction,
   HandoverInvite,
   HandoverItem,
   HandoverItemPatch,
@@ -223,6 +225,8 @@ export const onboardingApi = {
     post<OnboardingSection>(`${onboarding(id)}/sections/${seg(key)}/review`, input),
   updateHandoverItem: (id: string, itemId: string, patch: HandoverItemPatch) => post<HandoverItem>(`${onboarding(id)}/handover/${seg(itemId)}`, patch),
   updateGoLiveCheck: (id: string, checkId: string, patch: GoLiveCheckPatch) => post<GoLiveCheck>(`${onboarding(id)}/golive/${seg(checkId)}`, patch),
+  /** Verify one uploaded (extra) file as a building record, or attach it to a requested document. */
+  updateHandoverFile: (id: string, docId: string, action: HandoverFileAction) => post<HandoverFile>(`${onboarding(id)}/files/${seg(docId)}`, action),
   /** 409 with `blockers` when go-live can't be approved yet: read them with goLiveBlockers(err). */
   approve: (id: string, input: FinalApprovalInput = {}) => post<OnboardingProjectDetail>(`${onboarding(id)}/approve`, input),
   closeout: (id: string) => post<OnboardingProjectDetail>(`${onboarding(id)}/closeout`),
