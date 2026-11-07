@@ -11,6 +11,7 @@ import { ChiefOfStaffPage } from "./pages/ChiefOfStaffPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { PortfolioPage } from "./pages/PortfolioPage";
+import { PortalRoute, portalTokenFromPath } from "./pages/portal/PortalRoute";
 import { PortfolioProvider } from "./providers/PortfolioProvider";
 import { SessionProvider, type SessionStatus } from "./providers/SessionProvider";
 import { useRoute, type Route } from "./router";
@@ -86,6 +87,9 @@ function SessionGate(state: SessionStatus, controls: { retry: () => void; setSes
 }
 
 export function App() {
+  // The outgoing manager's handover portal (/handover/:token) is public: no session gate, no hub shell.
+  const portalToken = portalTokenFromPath(window.location.pathname);
+  if (portalToken !== null) return <PortalRoute token={portalToken} />;
   return (
     <ToastProvider>
       <SessionProvider renderGate={SessionGate}>
