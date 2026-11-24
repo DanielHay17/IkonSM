@@ -17,6 +17,7 @@ export type Route =
   | { name: "portfolio" }
   | { name: "approvals" }
   | { name: "chief-of-staff" }
+  | { name: "brain" }
   | { name: "building"; propertyId: string; tab: BuildingTab; threadId: string | null }
   | { name: "onboarding" }
   | { name: "onboarding-project"; propertyId: string; tab: OnboardingTab }
@@ -62,6 +63,7 @@ export function parseRoute(pathname: string): Route {
   if (!first) return { name: "portfolio" };
   if (first === "approvals" && !second) return { name: "approvals" };
   if (first === "chief-of-staff" && !second) return { name: "chief-of-staff" };
+  if (first === "brain" && !second) return { name: "brain" };
 
   if (first === "handover" && second && !third) return { name: "portal", token: second };
 
@@ -90,6 +92,7 @@ export const paths = {
   portfolio: () => "/",
   approvals: () => "/approvals",
   chiefOfStaff: () => "/chief-of-staff",
+  brain: () => "/brain",
   building: (propertyId: string, tab: BuildingTab = "inbox") => `/buildings/${enc(propertyId)}/${tab}`,
   thread: (propertyId: string, threadId: string) => `/buildings/${enc(propertyId)}/inbox/${enc(threadId)}`,
   /** Opens the Files tab with a document's text panel showing. */

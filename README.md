@@ -19,6 +19,7 @@ See [`DEMO.md`](DEMO.md) for the 10-minute demo script, [`PLAN.md`](PLAN.md) for
 | Portfolio | 16 buildings with live counts, plus the Chief of Staff brief |
 | Approvals | Every pending draft across the portfolio; approve, edit or reject |
 | Chief of Staff | Portfolio-wide chat ("What needs my attention today?") |
+| AI Brain | A map of Ikon's shared brain: every building (live), the rules, skills and docs, and how they link. Titles only; the brain's text stays in its own private repo |
 | Building → Inbox | Threads with triage (priority, category, who is responsible and why), approval cards and the conversation |
 | Building → Work orders | Kanban of work orders with contractor and make-safe deadline |
 | Building → Files | Documents in the Master File Structure folders (01 Plan & By-laws … 08 Sales & Disclosure) with full-text search, and import from OneDrive or SharePoint |

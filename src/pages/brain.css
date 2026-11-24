@@ -1,0 +1,117 @@
+/* The Brain screen's graph (src/lib/brainGraph.ts). Theme colours only. */
+.brain-graph {
+  display: block;
+  width: 100%;
+  height: clamp(440px, 62vh, 660px);
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.brain-graph .edge {
+  stroke: #c4c5c7;
+  stroke-width: 1;
+  opacity: 0.8;
+}
+.brain-graph .edge.on {
+  stroke: var(--color-ink);
+  stroke-width: 1.5;
+  opacity: 1;
+}
+.brain-graph .node {
+  cursor: pointer;
+  outline: none;
+}
+.brain-graph .target {
+  fill: transparent;
+}
+.brain-graph .node:focus-visible .target {
+  stroke: var(--color-ink);
+  stroke-width: 2;
+}
+.brain-graph text {
+  font: 500 12px var(--font-sans);
+  fill: var(--color-ink-soft);
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--color-surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.brain-graph .is-core text {
+  font: 800 13px var(--font-display);
+  font-stretch: 125%;
+  text-transform: uppercase;
+  fill: var(--color-ink);
+}
+.brain-graph .bare text {
+  display: none;
+}
+.brain-graph .bare.on:not(.mute) text,
+.brain-graph .bare:focus-visible text {
+  display: block;
+}
+.brain-shape .shape,
+.brain-graph .shape {
+  stroke: var(--color-surface);
+  stroke-width: 1.5;
+}
+.shape.is-core,
+.shape.is-rule,
+.shape.is-skill {
+  fill: var(--color-ink);
+}
+.shape.is-building {
+  fill: var(--color-taupe);
+}
+.brain-shape .shape.is-doc,
+.brain-graph .shape.is-doc {
+  fill: var(--color-silver);
+  stroke: var(--color-line-input);
+}
+.brain-shape .shape.is-idea,
+.brain-graph .shape.is-idea {
+  fill: var(--color-surface);
+  stroke: var(--color-line-input);
+  stroke-dasharray: 3 3;
+}
+.brain-graph .hot .shape {
+  stroke: var(--color-ink);
+  stroke-width: 2;
+}
+.brain-graph .body {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.brain-graph.dim .node:not(.on) {
+  opacity: 0.18;
+}
+.brain-graph.dim .edge:not(.on) {
+  opacity: 0.15;
+}
+.brain-graph .off {
+  opacity: 0 !important;
+  visibility: hidden;
+  pointer-events: none;
+}
+.brain-graph .wait {
+  opacity: 0 !important;
+}
+.brain-graph .pulse {
+  fill: var(--color-taupe);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .brain-graph .node,
+  .brain-graph .edge {
+    transition:
+      opacity 0.2s ease,
+      visibility 0.2s;
+  }
+  .brain-graph .body {
+    transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .brain-graph .hot .body {
+    transform: scale(1.12);
+  }
+}

@@ -229,6 +229,17 @@ const ICONS = {
       <path d="M8.5 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.5" />
     </>
   ),
+  /** The AI Brain: linked pages. */
+  network: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <circle cx="5" cy="5.5" r="2" />
+      <circle cx="19" cy="6.5" r="2" />
+      <circle cx="6.5" cy="19" r="2" />
+      <circle cx="18" cy="18.5" r="2" />
+      <path d="m9.8 9.9-3.3-3M14.4 10.2l3-2.4M10.2 14.4l-2.4 3M14.2 14.1l2.3 2.9" />
+    </>
+  ),
   /** A secure link. */
   link: (
     <>

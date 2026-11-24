@@ -146,6 +146,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               active={route.name === "onboarding" || route.name === "onboarding-project" || route.name === "onboarding-directory"}
             />
             <NavItem href={paths.chiefOfStaff()} icon="sparkles" label="Chief of Staff" active={route.name === "chief-of-staff"} />
+            <NavItem href={paths.brain()} icon="network" label="AI Brain" active={route.name === "brain"} />
           </div>
 
           <div className="mt-6 mb-2 flex items-center justify-between px-3">
