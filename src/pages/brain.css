@@ -4,6 +4,8 @@
   width: 100%;
   height: clamp(440px, 62vh, 660px);
   touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .brain-graph .edge {
   stroke: #c4c5c7;

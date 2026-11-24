@@ -445,6 +445,8 @@ export function mountBrainGraph(svg: SVGSVGElement, data: BrainGraphData, option
     picked = id;
     trace(id);
   });
+  // Dragging a dot must not select text or scroll the page.
+  on(svg, "mousedown", (e: MouseEvent) => idOf(e) && e.preventDefault());
   on(svg, "pointerdown", (e: PointerEvent) => {
     byTouch = e.pointerType === "touch";
     moved = false;
