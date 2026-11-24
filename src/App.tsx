@@ -17,7 +17,8 @@ import { SessionProvider, type SessionStatus } from "./providers/SessionProvider
 import { useLocationPath, useRoute, type Route } from "./router";
 import type { SessionInfo } from "../shared/types";
 
-// The onboarding screens load when first opened, keeping them out of the main bundle.
+// The onboarding screens and the brain load when first opened, keeping them out of the main bundle.
+const BrainPage = lazy(() => import("./pages/BrainPage").then((m) => ({ default: m.BrainPage })));
 const OnboardingDashboard = lazy(() => import("./pages/onboarding/OnboardingDashboard").then((m) => ({ default: m.OnboardingDashboard })));
 const OnboardingProjectPage = lazy(() => import("./pages/onboarding/ProjectPage").then((m) => ({ default: m.ProjectPage })));
 const OnboardingDirectoryPage = lazy(() => import("./pages/onboarding/Directory").then((m) => ({ default: m.DirectoryPage })));
@@ -36,6 +37,7 @@ const PAGE_TITLES: Partial<Record<Route["name"], string>> = {
   portfolio: "Portfolio",
   approvals: "Approvals",
   "chief-of-staff": "Chief of Staff",
+  brain: "AI Brain",
   onboarding: "Onboarding",
   "not-found": "Not found",
 };
@@ -48,6 +50,12 @@ function Screen({ route }: { route: Route }) {
       return <ApprovalsPage />;
     case "chief-of-staff":
       return <ChiefOfStaffPage />;
+    case "brain":
+      return (
+        <Suspense fallback={<ScreenLoading />}>
+          <BrainPage />
+        </Suspense>
+      );
     case "building":
       return <BuildingPage key={route.propertyId} propertyId={route.propertyId} tab={route.tab} threadId={route.threadId} />;
     case "onboarding":
